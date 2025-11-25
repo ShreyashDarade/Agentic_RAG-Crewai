@@ -64,7 +64,7 @@ DAY10/
 
 1. **Clone and navigate:**
    ```bash
-   cd DAY10
+   cd Agentic_RAG-Crewai-
    ```
 
 2. **Create virtual environment:**
