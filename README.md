@@ -97,7 +97,7 @@ Agentic_RAG-Crewai/
 ### 1. Clone and Setup
 
 ```bash
-git clone https://github.com/yourusername/Agentic_RAG-Crewai.git
+git clone https://github.com/ShreyashDarade/Agentic_RAG-Crewai.git
 cd Agentic_RAG-Crewai
 
 # Create virtual environment
