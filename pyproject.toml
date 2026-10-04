@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentic-rag"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Retrieval-augmented question answering: HTTP service, Python SDK and in-process engine."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -53,6 +53,9 @@ dev = [
     "milvus-lite>=2.4; sys_platform == 'linux'",
 ]
 
+[tool.hatch.version]
+path = "src/agentic_rag/_version.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentic_rag"]
 
@@ -76,7 +79,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "BLE", "RUF", "SIM", "C4", "PT"]
 ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "B"]
+"tests/**" = ["S", "B", "E501", "PT011", "PT012", "PT017", "PT018", "RUF059"]
 "src/agentic_rag/testing/contracts.py" = ["PT018", "S"]
 
 [tool.mypy]
@@ -93,3 +96,7 @@ ignore_missing_imports = true
 [tool.coverage.run]
 source_pkgs = ["agentic_rag"]
 branch = true
+
+[[tool.mypy.overrides]]
+module = ["agentic_rag.adapters.parser_pdf"]
+disallow_untyped_calls = false

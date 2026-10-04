@@ -23,3 +23,11 @@ def collection_name(request: pytest.FixtureRequest) -> str:
         + "_"
         + os.urandom(3).hex()
     )
+
+
+API_KEY = "test-key-0123456789abcdef"
+
+
+@pytest.fixture
+def api_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {API_KEY}"}

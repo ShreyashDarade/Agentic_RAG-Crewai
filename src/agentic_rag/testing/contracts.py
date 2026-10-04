@@ -24,6 +24,7 @@ from agentic_rag.errors import (
     EmbeddingFailed,
     IndexIncompatible,
     ModelFailed,
+    ModelOutputInvalid,
     RagError,
     UpstreamRateLimited,
     ValidationFailed,
@@ -39,6 +40,7 @@ from agentic_rag.ports import (
 )
 
 __all__ = [
+    "AnswerPipelineContract",
     "ChatModelContract",
     "ChunkerContract",
     "EmbedderContract",
@@ -56,6 +58,13 @@ def _skip(reason: str) -> NoReturn:
     import pytest
 
     pytest.skip(reason)
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    na = math.sqrt(sum(x * x for x in a)) or 1.0
+    nb = math.sqrt(sum(y * y for y in b)) or 1.0
+    return dot / (na * nb)
 
 
 def _vec(*hot: int, dim: int = DIM) -> list[float]:
@@ -207,11 +216,13 @@ class EmbedderContract:
 
     async def test_one_vector_per_input_in_order_with_declared_dimension(self) -> None:
         emb = await self.create()
-        texts = ["red apple", "blue sky", "red apple"]
+        texts = ["red apple", "blue sky is wide", "x"]
         vectors = await emb.embed_documents(texts)
         assert len(vectors) == 3
         assert all(len(v) == emb.dimension for v in vectors)
-        assert vectors[0] == vectors[2] or vectors[0] != vectors[1]  # order preserved, not shuffled
+        for text, vector in zip(texts, vectors, strict=True):  # order preserved, independent of batching
+            alone = await emb.embed_query(text)
+            assert _cosine(vector, alone) > 0.999, f"vector for {text!r} is not the one embedded alone"
 
     async def test_empty_input_gives_empty_output(self) -> None:
         assert await (await self.create()).embed_documents([]) == []
@@ -379,3 +390,62 @@ class ChunkerContract:
 
     def test_version_is_declared(self) -> None:
         assert isinstance(self.create().version, str) and self.create().version
+
+
+class AnswerPipelineContract:
+    """``create(chat)`` returns an ``AnswerPipeline`` that talks to the model only through ``chat``."""
+
+    def create(self, chat: Any) -> Any:
+        raise NotImplementedError
+
+    @staticmethod
+    def _hits() -> list[ScoredChunk]:
+        return [
+            ScoredChunk(c, 1.0 - i / 10)
+            for i, c in enumerate(make_chunks("d", ["red apples are fruit", "blue sky"]))
+        ]
+
+    @staticmethod
+    def _reply(answer: str, citations: list[str]) -> str:
+        import json
+
+        return json.dumps({"answer": answer, "citations": citations})
+
+    async def test_cites_only_what_it_retrieved(self) -> None:
+        from agentic_rag.testing.fakes import FakeChatModel, FakeRetriever
+
+        chat = FakeChatModel([self._reply("Apples are fruit.", ["ch_d_0"])])
+        out = await self.create(chat).answer(
+            "what are apples", retriever=FakeRetriever(self._hits()), top_k=5
+        )
+        assert out.text and set(out.cited_chunk_ids) <= {h.chunk.id for h in out.retrieved}
+        assert out.cited_chunk_ids == ("ch_d_0",)
+
+    async def test_nothing_retrieved_means_no_citations_and_no_model_call(self) -> None:
+        from agentic_rag.testing.fakes import FakeChatModel, FakeRetriever
+
+        chat = FakeChatModel([self._reply("made up", ["ch_x"])])
+        out = await self.create(chat).answer("anything", retriever=FakeRetriever([]), top_k=5)
+        assert out.text and out.cited_chunk_ids == () and out.retrieved == ()
+        assert chat.calls == []
+
+    async def test_unparseable_model_output_is_a_typed_error(self) -> None:
+        from agentic_rag.testing.fakes import FakeChatModel, FakeRetriever
+
+        chat = FakeChatModel(["definitely not json"])
+        try:
+            await self.create(chat).answer("q", retriever=FakeRetriever(self._hits()), top_k=5)
+        except ModelOutputInvalid:
+            return
+        raise AssertionError("garbage model output was accepted")
+
+    async def test_model_failure_propagates_typed(self) -> None:
+        from agentic_rag.testing.fakes import FakeChatModel, FakeRetriever
+
+        try:
+            await self.create(FakeChatModel(fail=True)).answer(
+                "q", retriever=FakeRetriever(self._hits()), top_k=5
+            )
+        except ModelFailed:
+            return
+        raise AssertionError("a failing model did not raise ModelFailed")

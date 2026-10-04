@@ -28,6 +28,7 @@ __all__ = [
     "IdempotencyKeyReused",
     "IndexIncompatible",
     "LimitExceeded",
+    "MethodNotAllowed",
     "ModelFailed",
     "ModelOutputInvalid",
     "NotFound",
@@ -156,6 +157,12 @@ class NotFound(RagError):
     code = "NOT_FOUND"
     http_status = 404
     public_message = "The resource was not found."
+
+
+class MethodNotAllowed(RagError):
+    code = "METHOD_NOT_ALLOWED"
+    http_status = 405
+    public_message = "The method is not allowed for this resource."
 
 
 class DocumentNotFound(RagError):

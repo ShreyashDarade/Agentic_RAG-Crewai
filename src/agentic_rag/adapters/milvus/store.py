@@ -78,6 +78,12 @@ class MilvusStore:
             self._exists = bool(client.has_collection(self._s.collection))
         return self._exists
 
+    async def aclose(self) -> None:
+        with self._connect_lock:
+            client, self._client_obj = self._client_obj, None
+        if client is not None:
+            await asyncio.to_thread(client.close)
+
     # -- Healthcheck -----------------------------------------------------------------------------
 
     async def check(self) -> None:

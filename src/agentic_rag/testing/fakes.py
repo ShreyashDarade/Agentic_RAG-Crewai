@@ -19,7 +19,7 @@ from agentic_rag.ports import (
     ScoredChunk,
 )
 
-__all__ = ["FakeChatModel", "FakeEmbedder", "FakeVectorStore"]
+__all__ = ["FakeChatModel", "FakeEmbedder", "FakeRetriever", "FakeVectorStore"]
 
 
 def _unit(vector: list[float]) -> list[float]:
@@ -176,3 +176,17 @@ class FakeChatModel:
             raise ModelFailed()
         index = min(len(self.calls) - 1, len(self._replies) - 1)
         return Completion(text=self._replies[index])
+
+
+class FakeRetriever:
+    """Returns fixed hits (ignoring the query) and records calls."""
+
+    def __init__(self, hits: Sequence[ScoredChunk] = ()) -> None:
+        self._hits = list(hits)
+        self.calls: list[tuple[str, int, ChunkFilter | None]] = []
+
+    async def retrieve(
+        self, query: str, *, top_k: int, filter: ChunkFilter | None = None
+    ) -> list[ScoredChunk]:
+        self.calls.append((query, top_k, filter))
+        return self._hits[:top_k]

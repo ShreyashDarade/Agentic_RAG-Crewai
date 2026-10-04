@@ -4,6 +4,7 @@ Standard library plus the ports only: importable on a thin install.
 """
 
 from agentic_rag.testing.contracts import (
+    AnswerPipelineContract,
     ChatModelContract,
     ChunkerContract,
     EmbedderContract,
@@ -13,14 +14,16 @@ from agentic_rag.testing.contracts import (
     VectorStoreContract,
     make_chunks,
 )
-from agentic_rag.testing.fakes import FakeChatModel, FakeEmbedder, FakeVectorStore
+from agentic_rag.testing.fakes import FakeChatModel, FakeEmbedder, FakeRetriever, FakeVectorStore
 
 __all__ = [
+    "AnswerPipelineContract",
     "ChatModelContract",
     "ChunkerContract",
     "EmbedderContract",
     "FakeChatModel",
     "FakeEmbedder",
+    "FakeRetriever",
     "FakeVectorStore",
     "LexicalIndexContract",
     "ParserContract",
