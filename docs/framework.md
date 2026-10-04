@@ -114,11 +114,13 @@ column is checked by a test that every `__all__` name has exactly one tier.
    them** (research §2 A5). Enums that servers may extend are documented as open.
 4. Every response (including 4xx/5xx/429/503) carries `X-Request-ID`; an inbound id is accepted only if it matches
    `^[A-Za-z0-9_-]{8,64}$`, else regenerated (research §1 "Request IDs", §2 D6).
-5. Mutating routes accept `Idempotency-Key`; same key + different body → 422 `IDEMPOTENCY_KEY_REUSED`; in flight → 409.
+5. Ingest is idempotent **by content addressing** (document and chunk ids derive from the bytes; re-uploading is a no-op, re-ingesting replaces).
+   An `Idempotency-Key` header for other mutations (same key + different body → 422 `IDEMPOTENCY_KEY_REUSED`; in flight → 409) is **not
+   implemented yet** (Step 16); the error classes exist but nothing raises them.
 6. Overload: bounded in-flight work; beyond it, immediate `503` with integer `Retry-After` and code `OVERLOADED`
    (research §2 B8). Health and readiness are exempt.
-7. Destructive and server-filesystem surfaces (`DELETE` collection, ingest-by-server-path) are **off** unless the settings
-   enable them, and are never reachable without the API key even then.
+7. There is no collection-drop endpoint and no ingest-from-a-server-path endpoint (the prototype's two most dangerous routes were not
+   re-created). Document deletion exists and needs the API key. Unauthenticated mode needs an explicit setting and logs a warning.
 
 ## 7. SOLID as rules (each has a check that fails on violation)
 
@@ -191,9 +193,10 @@ escalates to a visible warning in the last minor. The repo's own test suite turn
 * Every attacker- or accident-controlled quantity is bounded by a setting with a default: upload bytes, pages, pixels,
   archive members/uncompressed bytes, history length, query length, batch size, `top_k`, concurrency, queue depth, timeouts.
   *Enforced by:* one test per limit that exceeds it and sees its typed rejection.
-* Filters sent to Milvus are built only in one module with templated parameters and allow-listed field names; ids are
-  regex-validated; user text never reaches an expression string. *Enforced by:* injection-payload tests; forbidden-import
-  contract on `pymilvus` filter helpers outside that module.
+* Filters sent to Milvus are built only in `adapters.milvus.filters`: field names are fixed, every value must match the closed alphabet
+  `[A-Za-z0-9._-]{1,128}` (no quote, backslash, bracket or space) before it is rendered, and user text never reaches an expression
+  string. Templating (`filter_params`) is not the single path because Milvus Lite does not support it (verified). *Enforced by:*
+  conformance injection payloads on every store; mutation M22; `pymilvus` confined to its adapter (import-linter).
 * Uploads: extension allow-list **and** magic bytes, server-generated names, streamed size cap, path resolved and checked
   `is_relative_to(root)`. Retrieved text is delimited as untrusted data in prompts; the crew's tools are read-only retrieval.
 * Dependencies audited (`pip-audit --strict` on the lock) per PR and weekly.
@@ -205,31 +208,34 @@ escalates to a visible warning in the last minor. The repo's own test suite turn
 
 ## 12. Governance table (rule → check → where it runs)
 
-"Seen fail" is recorded in the Step-11 mutation log: break the rule on purpose, watch the check fail, revert.
+"Seen fail" cites a case in [mutation-proofs.md](mutation-proofs.md) (regenerate: `python scripts/prove_rules.py`); "Step N" means not yet built. The rule is: break the rule on purpose, watch the check fail, revert.
 
 | # | Rule | Check | Runs in | Seen fail |
 |---|---|---|---|---|
-| G1 | Layer directions (§2) | import-linter `layers`, `exhaustive=true` | CI `arch`, pre-commit | Step 11 |
-| G2 | Third-party confinement; thin client imports stdlib+httpx+pydantic only | import-linter `forbidden` (`include_external_packages`) + `tests/architecture/test_confinement.py` + clean-venv `sys.modules` test | CI `arch`, `packaging` | Step 11 |
-| G3 | Every package classified; every heavy library confined | exhaustive test over the package tree and `confinement.toml` | CI `arch` | Step 11 |
-| G4 | Routes only call the service | import-linter + AST size/call check | CI `arch` | Step 11 |
-| G5 | Public API unchanged unless intended | `public_api.txt` snapshot + `griffe check --against <tag>` | CI `contract` | Step 11 |
-| G6 | Wire contract unchanged unless intended | `openapi.json` regenerate-and-diff + `oasdiff breaking` | CI `contract` | Step 11 |
-| G7 | Error codes append-only, unique, round-trip | `error_codes.json` snapshot + catalog tests | CI `unit` | Step 9/11 |
-| G8 | Strict typing on the public package; `py.typed` shipped | `mypy --strict`; wheel content test | CI `lint`, `packaging` | Step 11 |
-| G9 | Every port implementation conforms | `agentic_rag.testing.contracts` suites over all built-ins and the fake plug-in | CI `conformance` | Step 11 |
-| G10 | Open-closed: add a component with zero core edits | fake plug-in test | CI `arch` | Step 11 |
+| G1 | Layer directions (§2) | import-linter `layers`, `exhaustive=true` | CI `static` | M01, M02 |
+| G2 | Third-party confinement; thin client imports stdlib+httpx+pydantic only | import-linter `forbidden` (`include_external_packages`) + `tests/architecture/test_confinement.py` + clean-venv `sys.modules` test | CI `static`, `packaging` | M03, M04, M05 |
+| G3 | Every package classified; every heavy library confined | exhaustive test over the package tree and `confinement.toml` | CI `static` | M06, M07 |
+| G4 | Routes only call the service | import-linter + AST size/call check | CI `static` | M08, M09 |
+| G5 | Public API unchanged unless intended | `public_api.txt` snapshot + `griffe check --against <tag>` | CI `static` | M10, M11 |
+| G6 | Wire contract unchanged unless intended | `openapi.json` regenerate-and-diff + `oasdiff breaking` | CI `static` | M12 |
+| G7 | Error codes append-only, unique, round-trip | `error_codes.json` snapshot + catalog tests | CI `tests` | M13, M14 |
+| G8 | Strict typing on the public package; `py.typed` shipped | `mypy --strict`; wheel content test | CI `static` (types); `packaging` job not built yet | M15 |
+| G9 | Every port implementation conforms | `agentic_rag.testing.contracts` suites over all built-ins and the fake plug-in | CI `tests` | M16, M17 + `test_suites_reject_broken.py` |
+| G10 | Open-closed: add a component with zero core edits | fake plug-in test | CI `static` | M18 |
 | G11 | Transports behave identically | parity suite, plus two-transports-one-engine comparison | CI `parity` | Step 13 |
-| G12 | No silent fallbacks | AST test for swallowed broad excepts; fault-injection tests expect typed errors | CI `unit` | Step 9/11 |
-| G13 | Limits enforced | one exceed-the-limit test per limit | CI `unit` | Step 15 |
+| G12 | No silent fallbacks | AST test for swallowed broad excepts; fault-injection tests expect typed errors | CI `tests` | M19, M20 |
+| G13 | Limits enforced | one exceed-the-limit test per limit | CI `tests` | M21 |
 | G14 | Defaults evidence-backed | `defaults.toml` test + `eval check` regression gate | CI `eval` | Step 18 |
 | G15 | Docs match code (claims in README/framework) | docs-vs-code grep test for routes, settings names, extras, codes | CI `docs` | Step 20 |
-| G16 | Dependencies free of known advisories | `pip-audit --strict` | CI `security` (PR + weekly) | Step 15 |
-| G17 | Lint/format | ruff check + format | CI `lint` | n/a (tool defaults) |
-| G18 | Deprecation metadata valid; own warnings are errors | decorator tests; pytest `filterwarnings=error` for the package's own category | CI `unit` | Step 14 |
+| G16 | Dependencies free of known advisories | `pip-audit --strict` | CI `security` (PR; weekly schedule not added yet) | shown ad hoc, see mutation-proofs.md |
+| G17 | Lint/format | ruff check + format | CI `static` | n/a (tool defaults) |
+| G18 | Deprecation metadata valid; own warnings are errors | decorator tests; pytest `filterwarnings=error` for the package's own category | CI `tests` | Step 14 |
 | G19 | "Two minors of notice" before removal | **review rule — not machine-enforced** | PR checklist | — |
 | G20 | A change to a FIXED item has an ADR | **review rule — not machine-enforced**; mitigated: G5/G6/G7 snapshots fail, forcing the PR to touch a file that the PR template ties to an ADR link | PR template | — |
 | G21 | "Narrowest port" for each consumer | **review rule — not machine-enforced** (size of Protocol *is* checked) | PR checklist | — |
+
+Not built yet, though listed above: the thin-client half of G2 (no SDK exists), the wheel/`py.typed` half of G8, `oasdiff` in G6 (the snapshot diff is
+enforced; `oasdiff` is not installed here), G11, G14, G15, G18; `griffe check` runs in CI only once a release tag exists (locally it is exercised against `HEAD` by M11).
 
 ## 13. Open items for the owner at this checkpoint
 

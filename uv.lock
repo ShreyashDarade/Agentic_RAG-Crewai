@@ -15,7 +15,6 @@ resolution-markers = [
 
 [[package]]
 name = "agentic-rag"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
@@ -96,24 +95,39 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agentic-rag", extras = ["engine"], marker = "extra == 'crewai'" },
-    { name = "agentic-rag", extras = ["engine"], marker = "extra == 'ocr'" },
-    { name = "agentic-rag", extras = ["engine"], marker = "extra == 'rerank'" },
-    { name = "agentic-rag", extras = ["engine"], marker = "extra == 'server'" },
-    { name = "agentic-rag", extras = ["engine"], marker = "extra == 'worker'" },
     { name = "beautifulsoup4", marker = "extra == 'parsers'", specifier = ">=4.12" },
     { name = "crewai", marker = "extra == 'crewai'", specifier = ">=1.14,<2" },
     { name = "easyocr", marker = "extra == 'ocr'", specifier = ">=1.7" },
     { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "lxml", marker = "extra == 'parsers'", specifier = ">=5" },
+    { name = "numpy", marker = "extra == 'crewai'", specifier = ">=1.26" },
     { name = "numpy", marker = "extra == 'engine'", specifier = ">=1.26" },
+    { name = "numpy", marker = "extra == 'ocr'", specifier = ">=1.26" },
+    { name = "numpy", marker = "extra == 'rerank'", specifier = ">=1.26" },
+    { name = "numpy", marker = "extra == 'server'", specifier = ">=1.26" },
+    { name = "numpy", marker = "extra == 'worker'", specifier = ">=1.26" },
+    { name = "openai", marker = "extra == 'crewai'", specifier = ">=1.60,<3" },
     { name = "openai", marker = "extra == 'engine'", specifier = ">=1.60,<3" },
+    { name = "openai", marker = "extra == 'ocr'", specifier = ">=1.60,<3" },
+    { name = "openai", marker = "extra == 'rerank'", specifier = ">=1.60,<3" },
+    { name = "openai", marker = "extra == 'server'", specifier = ">=1.60,<3" },
+    { name = "openai", marker = "extra == 'worker'", specifier = ">=1.60,<3" },
     { name = "opencv-python-headless", marker = "extra == 'ocr'", specifier = ">=4.8" },
     { name = "openpyxl", marker = "extra == 'parsers'", specifier = ">=3.1" },
     { name = "pydantic", specifier = ">=2.7,<3" },
+    { name = "pydantic-settings", marker = "extra == 'crewai'", specifier = ">=2.4,<3" },
     { name = "pydantic-settings", marker = "extra == 'engine'", specifier = ">=2.4,<3" },
+    { name = "pydantic-settings", marker = "extra == 'ocr'", specifier = ">=2.4,<3" },
+    { name = "pydantic-settings", marker = "extra == 'rerank'", specifier = ">=2.4,<3" },
+    { name = "pydantic-settings", marker = "extra == 'server'", specifier = ">=2.4,<3" },
+    { name = "pydantic-settings", marker = "extra == 'worker'", specifier = ">=2.4,<3" },
+    { name = "pymilvus", marker = "extra == 'crewai'", specifier = ">=2.5,<4" },
     { name = "pymilvus", marker = "extra == 'engine'", specifier = ">=2.5,<4" },
+    { name = "pymilvus", marker = "extra == 'ocr'", specifier = ">=2.5,<4" },
+    { name = "pymilvus", marker = "extra == 'rerank'", specifier = ">=2.5,<4" },
+    { name = "pymilvus", marker = "extra == 'server'", specifier = ">=2.5,<4" },
+    { name = "pymilvus", marker = "extra == 'worker'", specifier = ">=2.5,<4" },
     { name = "pymupdf", marker = "extra == 'parsers'", specifier = ">=1.24" },
     { name = "python-docx", marker = "extra == 'parsers'", specifier = ">=1.1" },
     { name = "python-multipart", marker = "extra == 'server'", specifier = ">=0.0.9" },
@@ -121,7 +135,7 @@ requires-dist = [
     { name = "sentence-transformers", marker = "extra == 'rerank'", specifier = ">=3" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.30" },
 ]
-provides-extras = ["engine", "parsers", "server", "worker", "crewai", "ocr", "rerank"]
+provides-extras = ["crewai", "engine", "ocr", "parsers", "rerank", "server", "worker"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1082,9 +1096,9 @@ name = "faiss-cpu"
 version = "1.15.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "packaging" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "packaging", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a3/90/695eeab44921bb475611fc71ec0a74af82080f496cb7586c6490e4f322d2/faiss_cpu-1.15.1-cp310-abi3-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ffa71b14b3090bc076f8b026554178868fdbfe2f26fe644da629405836369039", size = 9890446, upload-time = "2026-09-16T18:33:33.451Z" },
@@ -2100,11 +2114,11 @@ name = "milvus-lite"
 version = "3.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "faiss-cpu" },
-    { name = "grpcio" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "pyarrow" },
+    { name = "faiss-cpu", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "grpcio", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "pyarrow", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/16/48/3826b9b18621aa38548ed59749a3a2df0578a1262f8aeeed5cdeb7a9fb94/milvus_lite-3.2.1.tar.gz", hash = "sha256:4d988fe0a6bbdfc708046014ad69f4b140c43567ecafd8b6df300ad7d37210f3", size = 722376, upload-time = "2026-08-25T03:14:40.772Z" }
 wheels = [

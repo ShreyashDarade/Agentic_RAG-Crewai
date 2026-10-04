@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -54,9 +55,10 @@ def test_request_id_on_every_response_and_inbound_ids_are_validated(client: Test
     assert len(client.get("/healthz").headers["x-request-id"]) == 32
     ok = client.get("/healthz", headers={"X-Request-ID": "trace-12345678"})
     assert ok.headers["x-request-id"] == "trace-12345678"
-    evil = client.get("/healthz", headers={"X-Request-ID": "bad id\r\nSet-Cookie: x=1"})
-    assert evil.headers["x-request-id"] != "bad id"
-    assert "set-cookie" not in evil.headers
+    for hostile in ("has spaces and <script>", "x" * 200, "short", "a/b/../c-12345678"):
+        echoed = client.get("/healthz", headers={"X-Request-ID": hostile}).headers["x-request-id"]
+        assert echoed != hostile
+        assert re.fullmatch(r"[A-Za-z0-9_-]{8,64}", echoed)
     err = client.get("/v1/documents")
     assert err.json()["request_id"] == err.headers["x-request-id"]
 

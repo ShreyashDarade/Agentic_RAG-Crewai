@@ -1,0 +1,72 @@
+name: CI
+on:
+  push:
+    branches: [main, "ccr-*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: lint, types, architecture, snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --python 3.12 --extra engine --extra server --extra parsers --group dev
+      - run: uv run ruff check src tests scripts
+      - run: uv run ruff format --check src tests scripts
+      - run: uv run mypy
+      - run: uv run lint-imports
+      - run: uv run python scripts/snapshots.py check
+      - name: Public API compatibility against the last release tag (skipped until a tag exists)
+        run: |
+          git fetch --tags --force
+          if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+            uv run griffe check agentic_rag -s src -f github
+          else
+            echo "no release tag yet"
+          fi
+
+  tests:
+    name: tests (python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --python ${{ matrix.python }} --extra engine --extra server --extra parsers --group dev
+      - name: Start Milvus standalone (real service)
+        run: |
+          scripts/dev-services.sh up
+          scripts/dev-services.sh env >> "$GITHUB_ENV"
+          grep -q standalone <(echo "$(cat .dev/milvus.uri)") || { echo "::error::standalone Milvus did not start"; exit 1; }
+      - run: uv run pytest -q --cov --cov-report=term
+      - if: always()
+        run: scripts/dev-services.sh down
+
+  security:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --python 3.12 --group dev
+      - run: |
+          uv export --frozen --no-hashes --no-dev --extra engine --extra server --extra parsers --no-emit-project -o req.txt
+          uv run pip-audit -r req.txt --no-deps --disable-pip --strict
+
+  mutation-proofs:
+    name: governance mutation proofs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --python 3.12 --extra engine --extra server --extra parsers --group dev
+      - run: uv run python scripts/prove_rules.py
+      - name: The log in the repository must match what the proofs just produced
+        run: git diff --exit-code docs/mutation-proofs.md
