@@ -263,8 +263,12 @@ class LexicalIndexContract:
 
     def test_filter_and_top_k(self) -> None:
         index = self._loaded()
-        hits = index.search("fox", top_k=1, filter=ChunkFilter(document_ids=("d1",)))
-        assert len(hits) == 1 and hits[0].chunk.document_id == "d1"
+        best_overall = index.search("quick fox", top_k=1)[0].chunk.document_id
+        assert best_overall == "d2"  # so a filter that is ignored would return d2 below
+        hits = index.search("quick fox", top_k=1, filter=ChunkFilter(document_ids=("d1",)))
+        assert len(hits) == 1
+        assert hits[0].chunk.document_id == "d1"
+        assert index.search("quick fox", top_k=5, filter=ChunkFilter(document_ids=("nobody",))) == []
 
     def test_remove_document(self) -> None:
         index = self._loaded()

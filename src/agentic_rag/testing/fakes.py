@@ -19,7 +19,7 @@ from agentic_rag.ports import (
     ScoredChunk,
 )
 
-__all__ = ["FakeChatModel", "FakeEmbedder", "FakeRetriever", "FakeVectorStore"]
+__all__ = ["FakeChatModel", "FakeEmbedder", "FakeReranker", "FakeRetriever", "FakeVectorStore"]
 
 
 def _unit(vector: list[float]) -> list[float]:
@@ -190,3 +190,16 @@ class FakeRetriever:
     ) -> list[ScoredChunk]:
         self.calls.append((query, top_k, filter))
         return self._hits[:top_k]
+
+
+class FakeReranker:
+    """Reorders candidates by word overlap with the query (stable, dependency-free)."""
+
+    async def rerank(self, query: str, candidates: Sequence[ScoredChunk], *, top_k: int) -> list[ScoredChunk]:
+        words = set(query.lower().split())
+
+        def overlap(hit: ScoredChunk) -> int:
+            return len(words & set(hit.chunk.text.lower().split()))
+
+        ranked = sorted(candidates, key=lambda h: (-overlap(h), -h.score, h.chunk.id))
+        return [ScoredChunk(h.chunk, float(overlap(h))) for h in ranked[:top_k]]

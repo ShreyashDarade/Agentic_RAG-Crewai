@@ -14,6 +14,7 @@ from agentic_rag.testing import (
     FakeEmbedder,
     LexicalIndexContract,
     ParserContract,
+    RerankerContract,
 )
 
 
@@ -141,3 +142,10 @@ class TestDirectPipeline(AnswerPipelineContract):
         from agentic_rag.adapters.pipeline_direct import DirectPipeline
 
         return DirectPipeline(chat)
+
+
+class TestFakeReranker(RerankerContract):
+    async def create(self) -> Any:
+        from agentic_rag.testing import FakeReranker
+
+        return FakeReranker()

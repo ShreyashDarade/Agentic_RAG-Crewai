@@ -92,7 +92,7 @@ def _milvus(s: Settings, ctx: BuildContext) -> Any:
 
 def _openai_client(s: Settings, ctx: BuildContext) -> Any:
     try:
-        import openai
+        from agentic_rag.adapters.openai import create_client
     except ImportError as exc:
         raise _needs("engine", "openai") from exc
     if s.openai_api_key is None:
@@ -101,11 +101,8 @@ def _openai_client(s: Settings, ctx: BuildContext) -> Any:
     holder: dict[str, Any] = {}
 
     def make() -> Any:
-        holder["client"] = openai.AsyncOpenAI(
-            api_key=api_key,
-            base_url=s.openai_base_url,
-            timeout=s.openai_timeout_seconds,
-            max_retries=1,  # server-internal calls retry at most once (framework section 8)
+        holder["client"] = create_client(
+            api_key=api_key, base_url=s.openai_base_url, timeout_seconds=s.openai_timeout_seconds
         )
         return holder["client"]
 

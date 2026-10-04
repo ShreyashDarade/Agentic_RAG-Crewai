@@ -100,3 +100,114 @@ branch = true
 [[tool.mypy.overrides]]
 module = ["agentic_rag.adapters.parser_pdf"]
 disallow_untyped_calls = false
+
+# -- architecture contracts (framework section 2 and 12; run by `lint-imports`) --------------------------------
+
+[tool.importlinter]
+root_package = "agentic_rag"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "G1 layers: higher layers may import lower ones, never the reverse (exhaustive)"
+type = "layers"
+containers = ["agentic_rag"]
+layers = [
+    "server",
+    "container",
+    "config | api",
+    "application | adapters | testing",
+    "ports | contracts | registry",
+    "errors | _version",
+]
+exhaustive = true
+
+[[tool.importlinter.contracts]]
+name = "G1 adapters are independent of each other"
+type = "independence"
+modules = [
+    "agentic_rag.adapters.milvus",
+    "agentic_rag.adapters.openai",
+    "agentic_rag.adapters.lexical_bm25",
+    "agentic_rag.adapters.chunker_recursive",
+    "agentic_rag.adapters.parser_text",
+    "agentic_rag.adapters.parser_html",
+    "agentic_rag.adapters.parser_pdf",
+    "agentic_rag.adapters.parser_docx",
+    "agentic_rag.adapters.pipeline_direct",
+]
+
+[[tool.importlinter.contracts]]
+name = "G4 routes reach the system only through the application service"
+type = "forbidden"
+source_modules = ["agentic_rag.api"]
+forbidden_modules = ["agentic_rag.ports", "agentic_rag.adapters", "agentic_rag.container", "agentic_rag.config"]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "G2 domain code imports no framework or adapter library"
+type = "forbidden"
+source_modules = ["agentic_rag.ports", "agentic_rag.application", "agentic_rag.errors", "agentic_rag.registry"]
+forbidden_modules = [
+    "pydantic", "pydantic_settings", "fastapi", "starlette", "uvicorn", "httpx",
+    "pymilvus", "openai", "crewai", "bs4", "lxml", "pymupdf", "fitz", "docx", "numpy", "torch",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "G2 contracts import only the standard library and pydantic"
+type = "forbidden"
+source_modules = ["agentic_rag.contracts"]
+forbidden_modules = [
+    "pydantic_settings", "fastapi", "starlette", "uvicorn", "httpx",
+    "pymilvus", "openai", "crewai", "bs4", "lxml", "pymupdf", "fitz", "docx", "numpy", "torch",
+]
+allow_indirect_imports = true
+
+# One contract per heavy library: it may be imported only by its own package (direct imports only).
+[[tool.importlinter.contracts]]
+name = "G2 pymilvus is confined to adapters.milvus"
+type = "forbidden"
+source_modules = ["agentic_rag"]
+forbidden_modules = ["pymilvus"]
+allow_indirect_imports = true
+ignore_imports = ["agentic_rag.adapters.milvus.** -> pymilvus"]
+
+[[tool.importlinter.contracts]]
+name = "G2 openai is confined to adapters.openai"
+type = "forbidden"
+source_modules = ["agentic_rag"]
+forbidden_modules = ["openai"]
+allow_indirect_imports = true
+ignore_imports = ["agentic_rag.adapters.openai.** -> openai"]
+
+[[tool.importlinter.contracts]]
+name = "G2 document libraries are confined to their parser"
+type = "forbidden"
+source_modules = ["agentic_rag"]
+forbidden_modules = ["bs4", "lxml", "pymupdf", "fitz", "docx"]
+allow_indirect_imports = true
+ignore_imports = [
+    "agentic_rag.adapters.parser_html -> bs4",
+    "agentic_rag.adapters.parser_pdf -> pymupdf",
+    "agentic_rag.adapters.parser_docx -> docx",
+]
+
+[[tool.importlinter.contracts]]
+name = "G2 web framework is confined to api and server"
+type = "forbidden"
+source_modules = ["agentic_rag"]
+forbidden_modules = ["fastapi", "starlette", "uvicorn"]
+allow_indirect_imports = true
+ignore_imports = [
+    "agentic_rag.api.** -> fastapi",
+    "agentic_rag.api.** -> starlette",
+    "agentic_rag.server -> fastapi",
+]
+
+[[tool.importlinter.contracts]]
+name = "G2 settings library is confined to config"
+type = "forbidden"
+source_modules = ["agentic_rag"]
+forbidden_modules = ["pydantic_settings"]
+allow_indirect_imports = true
+ignore_imports = ["agentic_rag.config -> pydantic_settings"]

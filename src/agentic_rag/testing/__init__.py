@@ -14,7 +14,13 @@ from agentic_rag.testing.contracts import (
     VectorStoreContract,
     make_chunks,
 )
-from agentic_rag.testing.fakes import FakeChatModel, FakeEmbedder, FakeRetriever, FakeVectorStore
+from agentic_rag.testing.fakes import (
+    FakeChatModel,
+    FakeEmbedder,
+    FakeReranker,
+    FakeRetriever,
+    FakeVectorStore,
+)
 
 __all__ = [
     "AnswerPipelineContract",
@@ -23,6 +29,7 @@ __all__ = [
     "EmbedderContract",
     "FakeChatModel",
     "FakeEmbedder",
+    "FakeReranker",
     "FakeRetriever",
     "FakeVectorStore",
     "LexicalIndexContract",
