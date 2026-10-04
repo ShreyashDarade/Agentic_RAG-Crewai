@@ -81,6 +81,7 @@ ignore = ["S101"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "B", "E501", "PT011", "PT012", "PT017", "PT018", "RUF059"]
 "src/agentic_rag/testing/contracts.py" = ["PT018", "S"]
+"scripts/**" = ["E501", "RUF005", "RUF059", "S603", "S607", "S101"]
 
 [tool.mypy]
 strict = true
