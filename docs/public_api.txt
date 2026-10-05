@@ -88,6 +88,7 @@ Settings: class Settings(BaseSettings)
         field rrf_k: <class 'int'>
         field search_ef: <class 'int'>
         field shutdown_drain_seconds: <class 'float'>
+        field store_timeout_seconds: <class 'float'>
         field use_lexical: <class 'bool'>
         field use_reranker: <class 'bool'>
         field vector_store: <class 'str'>

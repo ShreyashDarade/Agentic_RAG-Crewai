@@ -11,6 +11,7 @@ from pymilvus import DataType, MilvusClient
 from pymilvus.exceptions import MilvusException, MilvusUnavailableException
 
 from agentic_rag.adapters.milvus.filters import quote_ids, render
+from agentic_rag.blocking import STORE_BACKLOG, STORE_WORKERS, BlockingPool
 from agentic_rag.errors import (
     IndexIncompatible,
     LimitExceeded,
@@ -38,6 +39,9 @@ class MilvusSettings:
     hnsw_ef_construction: int = 200
     search_ef: int = 64
     consistency_level: str = "Strong"
+    timeout_seconds: float = (
+        20.0  # per call; without it a store that accepts the connection and never answers hangs a thread
+    )
 
 
 class MilvusStore:
@@ -50,6 +54,12 @@ class MilvusStore:
         # Milvus Lite (a local file URI) is single-process and not safe for concurrent calls.
         self._serial = threading.Lock() if not settings.uri.startswith(("http://", "https://")) else None
         self._exists = False
+        self._pool = BlockingPool(
+            "milvus",
+            workers=STORE_WORKERS,
+            backlog=STORE_BACKLOG,
+            saturated=lambda: VectorStoreUnavailable("the store is not answering"),
+        )
         self._verified: tuple[int, str] | None = None  # (dimension, model) already checked against the index
 
     # -- plumbing --------------------------------------------------------------------------------
@@ -57,7 +67,9 @@ class MilvusStore:
     def _client(self) -> MilvusClient:
         with self._connect_lock:
             if self._client_obj is None:
-                self._client_obj = MilvusClient(uri=self._s.uri, token=self._s.token or "")
+                self._client_obj = MilvusClient(
+                    uri=self._s.uri, token=self._s.token or "", timeout=self._s.timeout_seconds
+                )
             return self._client_obj
 
     async def _run(self, fn: Callable[[MilvusClient], T]) -> T:
@@ -70,22 +82,27 @@ class MilvusStore:
                     return fn(client)
             except MilvusException as exc:
                 self._verified = None  # whatever we knew about the index may no longer hold
+                self._exists = False  # nor that the collection exists (it may have been dropped or recreated)
                 if isinstance(exc, MilvusUnavailableException) or exc.code in _UNAVAILABLE_CODES:
                     raise VectorStoreUnavailable() from exc
                 raise VectorStoreError() from exc
 
-        return await asyncio.to_thread(call)
+        return await self._pool.run(call)
 
     def _collection_exists(self, client: MilvusClient) -> bool:
         if not self._exists:
-            self._exists = bool(client.has_collection(self._s.collection))
+            self._exists = bool(client.has_collection(self._s.collection, timeout=self._s.timeout_seconds))
         return self._exists
 
     async def aclose(self) -> None:
         with self._connect_lock:
             client, self._client_obj = self._client_obj, None
-        if client is not None:
-            await asyncio.to_thread(client.close)
+        try:
+            if client is not None:
+                async with asyncio.timeout(5):
+                    await self._pool.run(client.close)
+        finally:
+            self._pool.close()
 
     # -- Healthcheck -----------------------------------------------------------------------------
 
@@ -103,10 +120,16 @@ class MilvusStore:
                 self._exists = True
                 self._verified = (dimension, embedding_model)
                 return
-            actual = _vector_dimension(c.describe_collection(self._s.collection))
+            actual = _vector_dimension(c.describe_collection(self._s.collection, timeout=self._s.timeout_seconds))
             if actual != dimension:
                 raise IndexIncompatible(details={"index_dimension": actual, "requested": dimension})
-            rows = c.query(self._s.collection, filter="chunk_index >= 0", output_fields=["embedding_model"], limit=1)
+            rows = c.query(
+                self._s.collection,
+                filter="chunk_index >= 0",
+                output_fields=["embedding_model"],
+                limit=1,
+                timeout=self._s.timeout_seconds,
+            )
             if rows and rows[0].get("embedding_model") != embedding_model:
                 raise IndexIncompatible(details={"index_model": rows[0].get("embedding_model")})
             self._verified = (dimension, embedding_model)
@@ -132,7 +155,11 @@ class MilvusStore:
             params={"M": self._s.hnsw_m, "efConstruction": self._s.hnsw_ef_construction},
         )
         c.create_collection(
-            self._s.collection, schema=schema, index_params=index, consistency_level=self._s.consistency_level
+            self._s.collection,
+            schema=schema,
+            index_params=index,
+            consistency_level=self._s.consistency_level,
+            timeout=self._s.timeout_seconds,
         )
 
     async def upsert(
@@ -158,7 +185,7 @@ class MilvusStore:
         def work(c: MilvusClient) -> None:
             # Batches keep each gRPC message well below Milvus's 64 MB limit (1536-d float vectors are ~6 KB each).
             for start in range(0, len(rows), _UPSERT_BATCH):
-                c.upsert(self._s.collection, rows[start : start + _UPSERT_BATCH])
+                c.upsert(self._s.collection, rows[start : start + _UPSERT_BATCH], timeout=self._s.timeout_seconds)
 
         await self._run(work)
 
@@ -170,7 +197,7 @@ class MilvusStore:
         def work(c: MilvusClient) -> int:
             if not self._collection_exists(c):
                 return 0
-            deleted = c.delete(self._s.collection, filter=expr)
+            deleted = c.delete(self._s.collection, filter=expr, timeout=self._s.timeout_seconds)
             return len(deleted) if isinstance(deleted, list) else int(deleted.get("delete_count", 0))
 
         return await self._run(work)
@@ -196,6 +223,7 @@ class MilvusStore:
                 filter=expr,
                 output_fields=_FIELDS,
                 search_params={"params": {"ef": max(self._s.search_ef, top_k * 2)}},
+                timeout=self._s.timeout_seconds,
             )
             return [ScoredChunk(_chunk(hit["entity"]), float(hit["distance"])) for hit in result[0]]
 
@@ -209,7 +237,9 @@ class MilvusStore:
         def work(c: MilvusClient) -> DocumentRecord | None:
             if not self._collection_exists(c):
                 return None
-            rows = c.query(self._s.collection, filter=expr, output_fields=_FIELDS, limit=1)
+            rows = c.query(
+                self._s.collection, filter=expr, output_fields=_FIELDS, limit=1, timeout=self._s.timeout_seconds
+            )
             return _record(rows[0]) if rows else None
 
         return await self._run(work)
@@ -223,6 +253,7 @@ class MilvusStore:
                 filter="chunk_index == 0",
                 output_fields=_FIELDS,
                 limit=_MAX_DOCUMENTS_LISTED,
+                timeout=self._s.timeout_seconds,
             )
             if len(rows) >= _MAX_DOCUMENTS_LISTED:
                 raise LimitExceeded("too many documents to list in one collection")
@@ -251,7 +282,11 @@ class MilvusStore:
             if not self._collection_exists(c):
                 return None
             return c.query_iterator(
-                self._s.collection, batch_size=batch_size, filter="chunk_index >= 0", output_fields=_FIELDS
+                self._s.collection,
+                batch_size=batch_size,
+                filter="chunk_index >= 0",
+                output_fields=_FIELDS,
+                timeout=self._s.timeout_seconds,
             )
 
         return work

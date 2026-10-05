@@ -16,6 +16,7 @@ from typing import Any, TypeVar
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
+from agentic_rag.blocking import STORE_BACKLOG, STORE_WORKERS, BlockingPool
 from agentic_rag.errors import IndexIncompatible, LimitExceeded, VectorStoreError, VectorStoreUnavailable
 from agentic_rag.ports import Chunk, ChunkFilter, DocumentRecord, ScoredChunk
 
@@ -32,6 +33,7 @@ class QdrantSettings:
     location: str  # ":memory:", a local directory path, or http(s)://host:port
     api_key: str | None = None
     collection: str = "documents"
+    timeout_seconds: float = 20.0
 
 
 def _point_id(chunk_id: str) -> str:
@@ -42,13 +44,24 @@ class QdrantStore:
     def __init__(self, settings: QdrantSettings) -> None:
         self._s = settings
         self._client_obj: QdrantClient | None = None
-        self._lock = threading.RLock()
+        self._lock = threading.RLock() if not settings.location.startswith(("http://", "https://")) else None
+        self._pool = BlockingPool(
+            "qdrant",
+            workers=STORE_WORKERS,
+            backlog=STORE_BACKLOG,
+            saturated=lambda: VectorStoreUnavailable("the store is not answering"),
+        )
 
     def _client(self) -> QdrantClient:
         if self._client_obj is None:
             loc = self._s.location
             if loc.startswith(("http://", "https://")):
-                self._client_obj = QdrantClient(url=loc, api_key=self._s.api_key, timeout=10, check_compatibility=False)
+                self._client_obj = QdrantClient(
+                    url=loc,
+                    api_key=self._s.api_key,
+                    timeout=max(1, round(self._s.timeout_seconds)),
+                    check_compatibility=False,
+                )
             elif loc == ":memory:":
                 self._client_obj = QdrantClient(location=":memory:")
             else:
@@ -58,6 +71,8 @@ class QdrantStore:
     async def _run(self, fn: Callable[[QdrantClient], T]) -> T:
         def call() -> T:
             try:
+                if self._lock is None:
+                    return fn(self._client())
                 with self._lock:
                     return fn(self._client())
             except ResponseHandlingException as exc:
@@ -65,15 +80,19 @@ class QdrantStore:
             except UnexpectedResponse as exc:
                 raise VectorStoreError() from exc
 
-        return await asyncio.to_thread(call)
+        return await self._pool.run(call)
 
     def _exists(self, c: QdrantClient) -> bool:
         return bool(c.collection_exists(self._s.collection))
 
     async def aclose(self) -> None:
         client, self._client_obj = self._client_obj, None
-        if client is not None:
-            await asyncio.to_thread(client.close)
+        try:
+            if client is not None:
+                async with asyncio.timeout(5):
+                    await self._pool.run(client.close)
+        finally:
+            self._pool.close()
 
     async def check(self) -> None:
         await self._run(lambda c: c.get_collections())

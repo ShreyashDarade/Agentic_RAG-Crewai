@@ -5,7 +5,6 @@ Same port and conformance suite as the Milvus adapter. Filters are typed ``where
 
 from __future__ import annotations
 
-import asyncio
 import threading
 from collections.abc import AsyncIterator, Callable, Collection, Sequence
 from dataclasses import dataclass
@@ -15,6 +14,7 @@ from urllib.parse import urlsplit
 import chromadb
 from chromadb.errors import ChromaError, NotFoundError
 
+from agentic_rag.blocking import STORE_BACKLOG, STORE_WORKERS, BlockingPool
 from agentic_rag.errors import IndexIncompatible, LimitExceeded, VectorStoreError, VectorStoreUnavailable
 from agentic_rag.ports import Chunk, ChunkFilter, DocumentRecord, ScoredChunk
 
@@ -39,7 +39,15 @@ class ChromaStore:
             raise ValueError("set exactly one of path and url")
         self._s = settings
         self._client_obj: Any = None
-        self._lock = threading.RLock()  # the local client is one process; serialise to be safe
+        # An embedded (path) client is one process and is serialised. A remote client is thread-safe, and holding a
+        # lock across network calls would let one stalled call block every other.
+        self._lock = threading.RLock() if not settings.url else None
+        self._pool = BlockingPool(
+            "chroma",
+            workers=STORE_WORKERS,
+            backlog=STORE_BACKLOG,
+            saturated=lambda: VectorStoreUnavailable("the store is not answering"),
+        )
 
     def _client(self) -> Any:
         if self._client_obj is None:
@@ -55,6 +63,8 @@ class ChromaStore:
     async def _run(self, fn: Callable[[Any], T]) -> T:
         def call() -> T:
             try:
+                if self._lock is None:
+                    return fn(self._client())
                 with self._lock:
                     return fn(self._client())
             except (ConnectionError, TimeoutError) as exc:
@@ -66,7 +76,7 @@ class ChromaStore:
             except ChromaError as exc:
                 raise VectorStoreError() from exc
 
-        return await asyncio.to_thread(call)
+        return await self._pool.run(call)
 
     def _collection(self, client: Any) -> Any | None:
         try:
@@ -78,6 +88,7 @@ class ChromaStore:
 
     async def aclose(self) -> None:
         self._client_obj = None
+        self._pool.close()
 
     async def check(self) -> None:
         await self._run(lambda c: c.heartbeat())

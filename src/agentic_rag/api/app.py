@@ -38,6 +38,8 @@ def create_app(
     cfg = config or ApiConfig()
     if not cfg.api_keys and not cfg.allow_unauthenticated:
         raise ConfigurationError("AGENTIC_RAG_API_KEYS is required (or set AGENTIC_RAG_ALLOW_UNAUTHENTICATED)")
+    if cfg.api_keys and cfg.allow_unauthenticated:
+        raise ConfigurationError("API keys and ALLOW_UNAUTHENTICATED are both set; choose one")
     app = FastAPI(
         title="Agentic RAG",
         version=__version__,

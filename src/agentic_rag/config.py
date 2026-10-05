@@ -19,6 +19,10 @@ from agentic_rag.errors import ConfigurationError
 __all__ = ["ENV_PREFIX", "Settings", "load_settings"]
 
 ENV_PREFIX = "AGENTIC_RAG_"
+#: Variables in this namespace that belong to the SDK, not to the server: the server accepts and ignores them, so one
+#: environment can hold both (an embedded client, or a shell that talks to the server it starts).
+CLIENT_ONLY_VARIABLES = frozenset({"AGENTIC_RAG_API_KEY"})
+FILE_SUFFIX = "_FILE"
 
 
 def _split(value: object) -> object:
@@ -105,6 +109,7 @@ class Settings(BaseSettings):
     max_concurrent_ingests: int = Field(default=4, ge=1, le=64)
     request_deadline_seconds: float = Field(default=55.0, gt=0, le=600)
     health_check_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
+    store_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
     max_inflight_requests: int = Field(default=64, ge=1, le=10_000)
     shutdown_drain_seconds: float = Field(default=3.0, ge=0, le=60)
     log_json: bool = True
@@ -173,14 +178,49 @@ class Settings(BaseSettings):
         )
 
 
+def _secret_fields() -> list[str]:
+    return [name for name, field in Settings.model_fields.items() if "SecretStr" in str(field.annotation)]
+
+
+def _read_secret_file(variable: str, path: str) -> str:
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read().strip()
+    except (OSError, UnicodeDecodeError):
+        raise ConfigurationError(
+            f"{variable} names a file that could not be read", details={"variable": variable}
+        ) from None
+
+
 def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
-    """Build Settings from ``environ`` (default ``os.environ``); failures are typed and value-free."""
+    """Build Settings from ``environ`` (default ``os.environ``); failures are typed and value-free.
+
+    A secret may be given directly (``AGENTIC_RAG_OPENAI_API_KEY``) or as the path of a file that holds it
+    (``AGENTIC_RAG_OPENAI_API_KEY_FILE``, for mounted secrets); giving both is an error.
+    """
     env = os.environ if environ is None else environ
     names = {ENV_PREFIX + name.upper(): name for name in Settings.model_fields}
-    unknown = sorted(k for k in env if k.upper().startswith(ENV_PREFIX) and k.upper() not in names)
+    secret_names = {ENV_PREFIX + name.upper() + FILE_SUFFIX: name for name in _secret_fields()}
+    unknown = sorted(
+        k
+        for k in env
+        if k.upper().startswith(ENV_PREFIX)
+        and k.upper() not in names
+        and k.upper() not in secret_names
+        and k.upper() not in CLIENT_ONLY_VARIABLES
+    )
     if unknown:
         raise ConfigurationError("unknown configuration variables: " + ", ".join(unknown), details={"unknown": unknown})
     values: dict[str, object] = {names[k.upper()]: v for k, v in env.items() if k.upper() in names}
+    for variable, field in secret_names.items():
+        path = next((v for k, v in env.items() if k.upper() == variable), None)
+        if path is None:
+            continue
+        if field in values:
+            raise ConfigurationError(
+                f"set {ENV_PREFIX + field.upper()} or {variable}, not both", details={"variable": variable}
+            )
+        values[field] = _read_secret_file(variable, path)
     try:
         settings = Settings(**values)  # type: ignore[arg-type]
     except ValidationError as exc:
@@ -194,4 +234,9 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         ) from None
     if settings.chunk_overlap_chars >= settings.chunk_max_chars // 2:
         raise ConfigurationError("AGENTIC_RAG_CHUNK_OVERLAP_CHARS must be less than half of the chunk size")
+    if settings.allow_unauthenticated and settings.api_keys:
+        raise ConfigurationError(
+            "AGENTIC_RAG_ALLOW_UNAUTHENTICATED and AGENTIC_RAG_API_KEYS are both set; "
+            "a leftover development flag must not silently open a protected server"
+        )
     return settings

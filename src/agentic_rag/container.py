@@ -11,18 +11,21 @@ import contextlib
 import json
 import logging
 import os
-from collections.abc import Awaitable, Callable
+import threading
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast
 
 from agentic_rag.application import Service
 from agentic_rag.application.retrieval import HybridRetriever
 from agentic_rag.config import Settings
-from agentic_rag.errors import ConfigurationError, RagError
+from agentic_rag.errors import ConfigurationError
 from agentic_rag.ports import (
     AnswerPipeline,
     ChatModel,
+    Chunk,
     Chunker,
+    ChunkFilter,
     ChunkScanner,
     DocumentCatalog,
     DocumentParser,
@@ -30,6 +33,7 @@ from agentic_rag.ports import (
     Healthcheck,
     LexicalIndex,
     Reranker,
+    ScoredChunk,
     VectorSearcher,
     VectorWriter,
 )
@@ -85,6 +89,7 @@ def _milvus(s: Settings, ctx: BuildContext) -> Any:
             hnsw_ef_construction=s.hnsw_ef_construction,
             search_ef=s.search_ef,
             consistency_level=s.consistency_level,
+            timeout_seconds=s.store_timeout_seconds,
         )
     )
     ctx.closers.append(store.aclose)
@@ -145,7 +150,14 @@ def _qdrant(s: Settings, ctx: BuildContext) -> Any:
     if not s.qdrant_location:
         raise ConfigurationError("AGENTIC_RAG_QDRANT_LOCATION is required for the qdrant vector store")
     key = s.qdrant_api_key.get_secret_value() if s.qdrant_api_key else None
-    store = QdrantStore(QdrantSettings(location=s.qdrant_location, api_key=key, collection=s.qdrant_collection))
+    store = QdrantStore(
+        QdrantSettings(
+            location=s.qdrant_location,
+            api_key=key,
+            collection=s.qdrant_collection,
+            timeout_seconds=s.store_timeout_seconds,
+        )
+    )
     ctx.closers.append(store.aclose)
     return store
 
@@ -270,11 +282,57 @@ def default_registries() -> Registries:
 # -- the container -----------------------------------------------------------------------------------
 
 
+class _GuardedIndex:
+    """The lexical index as the service and the retriever see it while it is being rebuilt from the store.
+
+    The rebuild reads the store in batches while requests keep deleting and re-ingesting. A batch that was read before
+    a delete and added after it would bring the deleted text back, and an old snapshot of a re-ingested document would
+    overwrite the new one. So while the rebuild runs, every document the service touches is remembered, and the rebuild
+    skips those: whatever the service did is newer than what the scan read. All operations share one lock, so a scan
+    batch cannot slip in between the check and the write.
+    """
+
+    def __init__(self, inner: LexicalIndex) -> None:
+        self._inner = inner
+        self._lock = threading.Lock()
+        self._touched: set[str] | None = None
+
+    def begin(self) -> None:
+        with self._lock:
+            self._touched = set() if self._touched is None else self._touched
+
+    def end(self) -> None:
+        with self._lock:
+            self._touched = None
+
+    def add(self, chunks: Sequence[Chunk]) -> None:
+        with self._lock:
+            if self._touched is not None:
+                self._touched.update(c.document_id for c in chunks)
+            self._inner.add(chunks)
+
+    def remove_document(self, document_id: str) -> None:
+        with self._lock:
+            if self._touched is not None:
+                self._touched.add(document_id)
+            self._inner.remove_document(document_id)
+
+    def search(self, query: str, *, top_k: int, filter: ChunkFilter | None = None) -> list[ScoredChunk]:
+        return self._inner.search(query, top_k=top_k, filter=filter)
+
+    def add_scanned(self, chunks: Sequence[Chunk]) -> None:
+        with self._lock:
+            touched = self._touched or set()
+            fresh = [c for c in chunks if c.document_id not in touched]
+            if fresh:
+                self._inner.add(fresh)
+
+
 class _LexicalHydration:
     """Rebuilds the in-memory lexical index from the vector store; reports readiness honestly."""
 
     def __init__(self, index: LexicalIndex, scanner: ChunkScanner, *, retry_seconds: float = 5.0) -> None:
-        self._index = index
+        self.index = _GuardedIndex(index)  # what the service and the retriever must use
         self._scanner = scanner
         self._retry = retry_seconds
         self._done = asyncio.Event()
@@ -285,6 +343,7 @@ class _LexicalHydration:
             raise ConfigurationError("the lexical index has not been rebuilt yet")
 
     def start(self) -> None:
+        self.index.begin()
         self._task = asyncio.create_task(self._run(), name="lexical-hydration")
 
     async def _run(self) -> None:
@@ -292,13 +351,16 @@ class _LexicalHydration:
             try:
                 count = 0
                 async for batch in self._scanner.scan(batch_size=500):
-                    self._index.add(batch)
+                    self.index.add_scanned(batch)
                     count += len(batch)
+                self.index.end()
                 logger.info("lexical index rebuilt from %d chunks", count)
                 self._done.set()
                 return
-            except RagError as exc:
-                logger.warning("lexical index rebuild failed (%s); retrying", exc.code)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # any failure, not only RagError: a dead task would leave /readyz failing forever
+                logger.exception("lexical index rebuild failed; retrying", extra={"event": "lexical_rebuild_failed"})
                 await asyncio.sleep(self._retry)
 
     async def aclose(self) -> None:
@@ -327,7 +389,19 @@ async def build_container(settings: Settings, registries: Registries | None = No
     regs = registries or default_registries()
     load_plugins(regs, settings.plugins)
     ctx = BuildContext(settings)
+    try:
+        return _assemble(settings, regs, ctx)
+    except BaseException:
+        # Factories register their closers as they open things; a later factory failing must not leak them.
+        for closer in reversed(ctx.closers):
+            try:
+                await closer()
+            except Exception:
+                logger.exception("error while closing a resource after a failed start-up")
+        raise
 
+
+def _assemble(settings: Settings, regs: Registries, ctx: BuildContext) -> Container:
     store = regs.vector_store.create(settings.vector_store, settings, ctx)
     embedder: Embedder = regs.embedder.create(settings.embedder, settings, ctx)
     ctx.built["chat_model"] = regs.chat_model.create(settings.chat_model, settings, ctx)
@@ -335,9 +409,18 @@ async def build_container(settings: Settings, registries: Registries | None = No
     parsers: list[DocumentParser] = [regs.parser.create(name, settings, ctx) for name in settings.parsers]
     pipeline: AnswerPipeline = regs.answer_pipeline.create(settings.answer_pipeline, settings, ctx)
     reranker: Reranker | None = regs.reranker.create(settings.reranker, settings, ctx) if settings.reranker else None
+    if settings.use_reranker != (reranker is not None):
+        raise ConfigurationError("AGENTIC_RAG_USE_RERANKER and AGENTIC_RAG_RERANKER must be set together")
     lexical: LexicalIndex | None = (
         None if settings.lexical_index == "none" else regs.lexical_index.create(settings.lexical_index, settings, ctx)
     )
+
+    hydration: _LexicalHydration | None = None
+    if lexical is not None and settings.use_lexical:
+        hydration = _LexicalHydration(lexical, cast(ChunkScanner, store))
+        lexical = hydration.index
+    elif not settings.use_lexical:
+        lexical = None
 
     retrieval = settings.to_retrieval()
     retriever = HybridRetriever(
@@ -348,19 +431,14 @@ async def build_container(settings: Settings, registries: Registries | None = No
         config=retrieval,
     )
     health: dict[str, Healthcheck] = {"vector_store": cast(Healthcheck, store)}
-    closers: list[Closer] = list(ctx.closers)
-    if lexical is not None and settings.use_lexical:
-        hydration = _LexicalHydration(lexical, cast(ChunkScanner, store))
-        hydration.start()
+    if hydration is not None:
         health["lexical_index"] = hydration
-        closers.append(hydration.aclose)
-
     service = Service(
         embedder=embedder,
         writer=cast(VectorWriter, store),
         catalog=cast(DocumentCatalog, store),
         retriever=retriever,
-        lexical=lexical if settings.use_lexical else None,
+        lexical=lexical,
         parsers=parsers,
         chunker=chunker,
         pipeline=pipeline,
@@ -368,4 +446,13 @@ async def build_container(settings: Settings, registries: Registries | None = No
         retrieval=retrieval,
         health_checks=health,
     )
+
+    async def close_threads() -> None:
+        service.close()
+        retriever.close()
+
+    closers: list[Closer] = [*ctx.closers, close_threads]
+    if hydration is not None:
+        hydration.start()  # last: nothing after this can fail, so the task is never orphaned
+        closers.append(hydration.aclose)
     return Container(settings=settings, service=service, _closers=closers)
