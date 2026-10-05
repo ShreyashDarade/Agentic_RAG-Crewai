@@ -100,9 +100,9 @@ class RecursiveChunker:
             current.append(unit)
             size += len(unit) + (1 if size else 0)
         if current and any(u.strip() for u in current):
-            last = "\n".join(current)
-            if not pieces or last != pieces[-1]:
-                pieces.append(last)
+            # ``current`` always ends with a unit that no earlier chunk contained (an overlap tail is followed by one),
+            # so it is never a duplicate to drop: dropping an identical final chunk lost text from periodic content.
+            pieces.append("\n".join(current))
         return pieces
 
     def _tail(self, text: str) -> str:

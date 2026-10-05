@@ -249,7 +249,7 @@
       },
       "QueryResponse": {
         "additionalProperties": true,
-        "description": "An answer with the chunks it cites.\n\n``grounded`` is ``False`` when nothing relevant was retrieved: ``answer`` then states that, no\nmodel was asked, and ``citations`` is empty.",
+        "description": "An answer with the chunks it cites.\n\n``grounded`` is ``True`` only when the answer cites at least one retrieved chunk. It is ``False``\nwhen nothing was retrieved (``answer`` then says so and no model was asked) and also when a model\nanswered without citing anything; in both cases ``citations`` is empty.",
         "properties": {
           "answer": {
             "title": "Answer",

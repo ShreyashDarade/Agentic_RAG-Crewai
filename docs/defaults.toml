@@ -1,6 +1,7 @@
 # Every default that changes retrieval or answer quality, with its evidence.
 # evidence = "<path to a run file under docs/eval>" | "unmeasured". tests/docs/test_docs_match_code.py enforces that every
-# setting listed in [required] has an entry here and that cited run files exist.
+# setting is either listed here or classified as operational in that test (so a new setting cannot be added unclassified),
+# that each value matches the code, and that cited run files exist.
 
 [bm25_k1]
 value = 1.2
@@ -63,3 +64,23 @@ evidence = "unmeasured"
 [pipeline_max_tokens]
 value = 700
 evidence = "unmeasured"
+
+[crewai_max_iter]
+value = 3
+evidence = "unmeasured"
+note = "Reasoning iterations per agent. Bounds cost; whether more iterations improve answers is not measured."
+
+[crewai_max_seconds]
+value = 40
+evidence = "unmeasured"
+note = "A safety bound (must stay below the request deadline), not a quality setting."
+
+[crewai_max_context_chars]
+value = 12000
+evidence = "unmeasured"
+note = "How much retrieved text the crew may be shown per prompt, including what its search tool returns."
+
+[crewai_search_budget]
+value = 4
+evidence = "unmeasured"
+note = "Searches the retriever agent may run per question."

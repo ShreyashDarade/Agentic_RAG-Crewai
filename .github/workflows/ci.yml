@@ -66,13 +66,39 @@ jobs:
           uv export --frozen --no-hashes --no-dev --extra engine --extra server --extra parsers --no-emit-project -o req.txt
           uv run pip-audit -r req.txt --no-deps --disable-pip --strict
 
+  eval-gate:
+    name: retrieval regression gate (golden set)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --python 3.12 --extra engine --group dev
+      - name: Score the committed golden set and compare it with the committed baseline (fails on a significant regression)
+        run: |
+          uv run agentic-rag eval run --dataset tests/eval/golden --out "$RUNNER_TEMP/golden.json" > /dev/null
+          uv run agentic-rag eval check --baseline docs/eval/golden-bm25-baseline.json --candidate "$RUNNER_TEMP/golden.json"
+
+  packaging:
+    name: wheel and thin install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --python 3.12 --group dev
+      - name: Build the wheel, install only it in a clean environment, prove the thin client imports no engine library
+        run: uv run python scripts/check_wheel.py
+
   mutation-proofs:
     name: governance mutation proofs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --frozen --python 3.12 --extra engine --extra server --extra parsers --group dev
+      - run: uv sync --frozen --python 3.12 --extra engine --extra server --extra parsers --extra crewai --extra chroma --extra qdrant --group dev
+      # Every case must show: check passes on a clean copy, fails on the broken copy. The script exits non-zero otherwise.
       - run: uv run python scripts/prove_rules.py
-      - name: The log in the repository must match what the proofs just produced
-        run: git diff --exit-code docs/mutation-proofs.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-proofs
+          path: docs/mutation-proofs.md

@@ -56,7 +56,9 @@ class MilvusStore:
         self._exists = False
         self._pool = BlockingPool(
             "milvus",
-            workers=STORE_WORKERS,
+            workers=1
+            if self._serial is not None
+            else STORE_WORKERS,  # an embedded engine runs one call at a time anyway
             backlog=STORE_BACKLOG,
             saturated=lambda: VectorStoreUnavailable("the store is not answering"),
         )

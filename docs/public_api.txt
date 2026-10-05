@@ -52,9 +52,11 @@ Settings: class Settings(BaseSettings)
         field crewai_llm_base_url: str | None
         field crewai_llm_model: str | None
         field crewai_max_concurrent: <class 'int'>
+        field crewai_max_context_chars: <class 'int'>
         field crewai_max_iter: <class 'int'>
         field crewai_max_seconds: <class 'int'>
         field crewai_provider_timeout_seconds: <class 'float'>
+        field crewai_search_budget: <class 'int'>
         field default_top_k: <class 'int'>
         field embed_batch_size: <class 'int'>
         field embedder: <class 'str'>
@@ -415,6 +417,7 @@ AnswerPipelineContract: class AnswerPipelineContract()
         def test_cites_only_what_it_retrieved(self) -> 'None'
         def test_model_failure_propagates_typed(self) -> 'None'
         def test_nothing_retrieved_means_no_citations_and_no_model_call(self) -> 'None'
+        def test_retrieved_text_cannot_close_its_own_delimiter(self) -> 'None'
         def test_unparseable_model_output_is_a_typed_error(self) -> 'None'
 ChatModelContract: class ChatModelContract()
         def create(self) -> 'Any'

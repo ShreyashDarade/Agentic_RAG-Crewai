@@ -23,6 +23,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -143,6 +144,8 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
             await timed(lambda i: svc.query(QueryRequest(question=queries[i % len(queries)])), args.queries, c)
             for c in args.clients
         ]
+        if args.stages:
+            result["stages_ms"] = await _stages(svc, queries, args.queries)
         if args.profile:
             profiler = cProfile.Profile()
             profiler.enable()
@@ -154,6 +157,40 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
     finally:
         await container.aclose()
     return result
+
+
+async def _stages(svc: Any, queries: list[str], n: int) -> dict[str, object]:
+    """Each retrieval stage timed on its own (one caller, p50), so "where the time goes" is data, not recollection."""
+    embedder, searcher, lexical = svc._embedder, svc._retriever._searcher, svc._lexical
+    chunks = len(await searcher.search(await embedder.embed_query(queries[0]), top_k=100_000))
+
+    async def stage(call: Any) -> float:
+        samples = []
+        for i in range(n):
+            t0 = time.perf_counter()
+            await call(queries[i % len(queries)])
+            samples.append((time.perf_counter() - t0) * 1000)
+        return round(pct(samples, 50), 3)
+
+    async def embed(q: str) -> None:
+        await embedder.embed_query(q)
+
+    async def dense(q: str) -> None:
+        await searcher.search(await embedder.embed_query(q), top_k=40)
+
+    async def lex(q: str) -> None:
+        lexical.search(q, top_k=40)
+
+    async def whole(q: str) -> None:
+        await svc.search(SearchRequest(query=q, top_k=8))
+
+    return {
+        "indexed_chunks": chunks,
+        "embed_query_p50": await stage(embed),
+        "dense_search_incl_embed_p50": await stage(dense),
+        "bm25_p50": await stage(lex),
+        "service_search_p50": await stage(whole),
+    }
 
 
 def _top(stats: pstats.Stats, n: int = 12) -> list[str]:
@@ -179,6 +216,7 @@ def main() -> int:
     ap.add_argument("--clients", type=int, nargs="+", default=[1, 4, 16])
     ap.add_argument("--ingest-clients", type=int, default=4)
     ap.add_argument("--profile", action="store_true")
+    ap.add_argument("--stages", action="store_true", help="also time each retrieval stage on its own")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args()
     result = asyncio.run(run(args))

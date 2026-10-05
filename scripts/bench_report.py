@@ -13,7 +13,40 @@ RUNS = [
     ("baseline-run2", "baseline (run 2)"),
     ("after-A-cache-verify", "A: cache the index verification"),
     ("after-B-two-phase-commit", "A+B: two-phase commit marker, 500-row batches"),
+    ("before-review-round-1-run1", "commit before review round 1, measured in the same session (run 1)"),
+    ("before-review-round-1-run2", "commit before review round 1, measured in the same session (run 2)"),
+    ("after-review-round-1-eight-workers-run1", "after review round 1, 8 store workers on Lite (run 1)"),
+    ("after-review-round-1-eight-workers-run2", "after review round 1, 8 store workers on Lite (run 2)"),
+    (
+        "after-review-round-1-one-worker-for-lite-run1",
+        "after review round 1, 1 store worker on Lite: **current** (run 1)",
+    ),
+    (
+        "after-review-round-1-one-worker-for-lite-run2",
+        "after review round 1, 1 store worker on Lite: **current** (run 2)",
+    ),
+    ("stages-current", "after review round 1, 1 store worker on Lite: **current** (run 3, with stage timing)"),
+    ("experiment-store-on-default-executor-run1", "experiment: store calls on the default executor (run 1)"),
+    ("experiment-store-on-default-executor-run2", "experiment: store calls on the default executor (run 2)"),
+    ("experiment-lexical-on-default-executor-run1", "experiment: lexical search on the default executor (run 1)"),
+    ("experiment-lexical-on-default-executor-run2", "experiment: lexical search on the default executor (run 2)"),
 ]
+
+
+def stages() -> str:
+    lines = [
+        "| Run | Indexed chunks | Query embedding (fake) | Dense search incl. embedding | BM25 | `service.search` end to end |",
+        "|---|---|---|---|---|---|",
+    ]
+    for key, label in RUNS:
+        d = json.loads((ROOT / "docs" / "bench" / f"{key}.json").read_text())
+        if "stages_ms" in d:
+            s = d["stages_ms"]
+            lines.append(
+                f"| {label} | {s['indexed_chunks']} | {s['embed_query_p50']} ms | {s['dense_search_incl_embed_p50']} ms | "
+                f"{s['bm25_p50']} ms | {s['service_search_p50']} ms |"
+            )
+    return "\n".join(lines) + "\n"
 
 
 def render() -> str:
@@ -40,3 +73,4 @@ def render() -> str:
 
 if __name__ == "__main__":
     sys.stdout.write(render())
+    sys.stdout.write("\nStages (p50, one caller):\n\n" + stages())

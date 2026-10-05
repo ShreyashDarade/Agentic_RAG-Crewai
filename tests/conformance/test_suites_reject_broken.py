@@ -497,6 +497,24 @@ class CallsModelWithoutContext(DirectPipeline):
         return PipelineAnswer(out.text or "answer", (), tuple(hits))
 
 
+class SendsRawChunkText(DirectPipeline):
+    """Puts retrieved text into the prompt unescaped, so a chunk can close its own element."""
+
+    async def answer(self, question: str, *, retriever: Any, top_k: int, filter: Any = None) -> Any:
+        from agentic_rag.ports import PipelineAnswer
+        from agentic_rag.ports.answers import NO_INFORMATION, parse_answer
+
+        hits = await retriever.retrieve(question, top_k=top_k, filter=filter)
+        if not hits:
+            return PipelineAnswer(NO_INFORMATION, (), ())
+        raw = "\n".join(
+            f'<chunk id="{h.chunk.id}" source="{h.chunk.document_name}">{h.chunk.text}</chunk>' for h in hits
+        )
+        out = await self._chat.complete([ChatMessage("user", raw + "\n" + question)], max_tokens=50)
+        answer, citations = parse_answer(out.text)
+        return PipelineAnswer(answer, citations, tuple(hits))
+
+
 class AcceptsGarbageOutput(DirectPipeline):
     async def answer(self, question: str, *, retriever: Any, top_k: int, filter: Any = None) -> Any:
         from agentic_rag.errors import ModelOutputInvalid
@@ -514,6 +532,7 @@ class AcceptsGarbageOutput(DirectPipeline):
         (CitesAnything, "test_cites_only_what_it_retrieved"),
         (CallsModelWithoutContext, "test_nothing_retrieved_means_no_citations_and_no_model_call"),
         (AcceptsGarbageOutput, "test_unparseable_model_output_is_a_typed_error"),
+        (SendsRawChunkText, "test_retrieved_text_cannot_close_its_own_delimiter"),
     ],
 )
 async def test_pipeline_suite_rejects(broken: type[DirectPipeline], expected: str) -> None:

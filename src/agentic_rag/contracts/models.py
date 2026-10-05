@@ -71,8 +71,9 @@ class Source(_Response):
 class QueryResponse(_Response):
     """An answer with the chunks it cites.
 
-    ``grounded`` is ``False`` when nothing relevant was retrieved: ``answer`` then states that, no
-    model was asked, and ``citations`` is empty.
+    ``grounded`` is ``True`` only when the answer cites at least one retrieved chunk. It is ``False``
+    when nothing was retrieved (``answer`` then says so and no model was asked) and also when a model
+    answered without citing anything; in both cases ``citations`` is empty.
     """
 
     answer: str

@@ -236,6 +236,8 @@ def _crewai_pipeline(s: Settings, ctx: BuildContext) -> Any:
         max_iter=s.crewai_max_iter,
         max_seconds=s.crewai_max_seconds,
         max_concurrent=s.crewai_max_concurrent,
+        max_context_chars=s.crewai_max_context_chars,
+        search_budget=s.crewai_search_budget,
     )
     ctx.closers.append(_sync_closer(pipeline.close))
     return pipeline

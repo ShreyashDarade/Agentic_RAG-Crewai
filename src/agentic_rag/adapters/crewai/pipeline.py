@@ -135,12 +135,14 @@ class CrewPipeline:
         max_seconds: int = 40,
         max_concurrent: int = 4,
         max_context_chars: int = 12000,
+        search_budget: int = 4,
     ) -> None:
         self._chat = chat
         self._max_tokens = max_tokens
         self._max_iter = max_iter
         self._max_seconds = max_seconds
         self._max_context_chars = max_context_chars
+        self._search_budget = search_budget
         # Each crew occupies one thread for its whole run; the provider calls it waits for run on other pools, so no
         # pool ever waits on itself. More crews than this are refused at once instead of queueing behind slow ones.
         self._crews = BlockingPool("crewai-crew", workers=max_concurrent, backlog=max_concurrent, saturated=Overloaded)
@@ -177,6 +179,7 @@ class CrewPipeline:
             seen=seen,
             llm=llm,
             max_context_chars=self._max_context_chars,
+            budget=self._search_budget,
             timeout=float(self._max_seconds),
         )
         evidence = render_chunks(shown)

@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     crewai_max_seconds: int = Field(default=40, ge=1, le=300)
     crewai_max_concurrent: int = Field(default=4, ge=1, le=64)
     crewai_provider_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    crewai_max_context_chars: int = Field(default=12000, ge=1000, le=200_000)
+    crewai_search_budget: int = Field(default=4, ge=1, le=20)
 
     # -- OpenAI ----------------------------------------------------------------------------------
     openai_api_key: SecretStr | None = None

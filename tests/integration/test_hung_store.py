@@ -50,7 +50,8 @@ async def test_qdrant_gives_up_after_its_timeout_with_a_typed_error(hung_server:
     store = QdrantStore(QdrantSettings(location=f"http://127.0.0.1:{hung_server}", timeout_seconds=1))
     started = time.monotonic()
     with pytest.raises(VectorStoreUnavailable):
-        await store.check()
+        async with asyncio.timeout(15):  # a missing client timeout must fail this test, not hang it
+            await store.check()
     assert time.monotonic() - started < 5
     await store.aclose()
 
@@ -62,7 +63,8 @@ async def test_milvus_gives_up_after_its_timeout_with_a_typed_error(hung_server:
     store = MilvusStore(MilvusSettings(uri=f"http://127.0.0.1:{hung_server}", timeout_seconds=1))
     started = time.monotonic()
     with pytest.raises(VectorStoreUnavailable):
-        await store.check()
+        async with asyncio.timeout(30):
+            await store.check()
     assert time.monotonic() - started < 10
     await store.aclose()
 

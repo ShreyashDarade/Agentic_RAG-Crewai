@@ -181,3 +181,16 @@ def test_the_crewai_chat_model_passes_a_timeout_to_the_provider() -> None:
     model = CrewAIChatModel("openai/gpt-4o-mini", api_key="sk-test", timeout_seconds=12)
     client = model._client(100, 0.0, False)
     assert client.timeout == 12
+
+
+async def test_the_search_budget_is_enforced() -> None:
+    from agentic_rag.adapters.crewai._llm import PortLLM
+    from agentic_rag.adapters.crewai.pipeline import _SearchTool
+
+    loop = asyncio.get_running_loop()
+    retrieval = Retrieval()
+    llm = PortLLM(model="m", chat=FakeChatModel(), loop=loop)
+    tool = _SearchTool(retriever=retrieval, loop=loop, top_k=3, flt=None, seen={}, llm=llm, budget=2)
+    outputs = [await asyncio.to_thread(tool._run, f"query {i}") for i in range(4)]
+    assert len(retrieval.calls) == 2
+    assert outputs[2].startswith("Search budget exhausted") and outputs[3].startswith("Search budget exhausted")
