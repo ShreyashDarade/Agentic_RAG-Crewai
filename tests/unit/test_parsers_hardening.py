@@ -65,15 +65,25 @@ def test_the_defaults_bound_a_single_part_far_below_the_old_100_mib_total() -> N
     assert parser._max_bytes <= 32 * 1024 * 1024
 
 
-def test_chunking_one_enormous_line_takes_linear_time() -> None:
+def test_chunking_one_enormous_line_scales_linearly() -> None:
+    """Quadratic behaviour shows as time growing with the square of the input; a wall-clock bound would depend on the machine."""
     chunker = RecursiveChunker(max_chars=1500, overlap_chars=200)
-    text = "word " * 400_000  # 2 MB with no paragraph or sentence breaks
-    started = time.perf_counter()
-    chunks = chunker.chunk(ParsedDocument(text=text), document_id="d", document_name="n.txt")
-    elapsed = time.perf_counter() - started
-    assert len(chunks) > 1000
-    assert elapsed < 3.0, f"{elapsed:.1f}s: the hard split is no longer linear"  # it was ~1 s per 4 MB squared before
-    assert max(len(c.text) for c in chunks) <= 1500
+
+    def best_of_two(megabytes: int) -> float:
+        text = "word " * (
+            megabytes * 200_000
+        )  # no paragraph or sentence breaks: everything goes through the hard split
+        best = float("inf")
+        for _ in range(2):
+            started = time.perf_counter()
+            chunks = chunker.chunk(ParsedDocument(text=text), document_id="d", document_name="n.txt")
+            best = min(best, time.perf_counter() - started)
+        assert max(len(c.text) for c in chunks) <= 1500
+        return best
+
+    small, large = best_of_two(2), best_of_two(8)  # four times the input
+    ratio = large / small
+    assert ratio < 12, f"4x the text took {ratio:.1f}x as long (about 4 is linear, about 16 or more is quadratic)"
 
 
 def test_hard_split_loses_no_words_and_respects_the_bound() -> None:

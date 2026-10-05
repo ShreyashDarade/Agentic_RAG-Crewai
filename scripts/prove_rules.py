@@ -7,6 +7,7 @@ For each rule: copy the repository, break the rule on purpose, run the rule's ch
     scripts/prove_rules.py            run every case and rewrite docs/mutation-proofs.md
     scripts/prove_rules.py --jobs 3   the same, three cases at a time (each in its own copy)
     scripts/prove_rules.py M03 M10    run only these cases (does not rewrite the log)
+    scripts/prove_rules.py --merge M03 M10   the same, then replace just those rows in docs/mutation-proofs.md
 """
 
 from __future__ import annotations
@@ -1118,7 +1119,7 @@ CASES: list[Case] = [
                 "            text = text[cut:].lstrip()\n            start, end = 0, len(text)",
             )
         ],
-        PYTEST + ["tests/unit/test_parsers_hardening.py", "-k", "linear_time"],
+        PYTEST + ["tests/unit/test_parsers_hardening.py", "-k", "scales_linearly"],
         "FAILED",
     ),
     Case(
@@ -1144,8 +1145,9 @@ CASES: list[Case] = [
         [
             E(
                 S + "evaluation/dataset.py",
-                "                if not seen_row:\n                    seen_row = True  # the header row\n                    continue",
-                "                continue",
+                '            fields = line.rstrip("\\r\\n").split("\\t")\n',
+                "            if number == 1:\n                continue  # always treat the first line as a header\n"
+                '            fields = line.rstrip("\\r\\n").split("\\t")\n',
             )
         ],
         PYTEST + ["tests/unit/test_evaluation.py", "-k", "first_judgment"],
@@ -1337,6 +1339,7 @@ CASES: list[Case] = [
         [E("README.md", None, '\nexample: api_key = "' + "q" * 40 + '"\n')],
         PYTEST + ["tests/architecture/test_no_secrets_committed.py", "-k", "credential_shaped"],
         "FAILED",
+        needs_git=True,
     ),
     Case(
         "M109",
@@ -1449,35 +1452,53 @@ def prove(case: Case) -> bool:
     return control_ok and failed
 
 
+def _row(c: Case) -> str:
+    cmd = " ".join(Path(p).name if p.startswith("/") else p for p in c.command).replace("-p no:cacheprovider ", "")
+    ev = c.result["evidence"].replace("|", "\\|")
+    return f"| {c.id} | {c.rule} | {c.what} | `{cmd}` | {c.result['control']} | {c.result['mutated']} | `{ev}` |"
+
+
 def write_log(cases: list[Case]) -> None:
     lines = [
         "# Mutation proofs",
         "",
         "Each rule in the governance table (framework section 12) was broken on purpose in a copy of the repository and its check was run;",
         "a rule counts as *enforced* only if the check passes on the clean copy and fails on the mutated one.",
-        "Regenerate with `python scripts/prove_rules.py` (about half an hour: every case runs its check twice). Commands run from the repository root with the project's virtualenv.",
+        "Regenerate with `python scripts/prove_rules.py` (about an hour with `--jobs 3`: every case runs its check twice). Commands run from the repository root with the project's virtualenv.",
         "",
         "| # | Rule | Mutation | Check | Clean copy | Mutated copy | Evidence (first matching output line) |",
         "|---|---|---|---|---|---|---|",
     ]
-    for c in cases:
-        cmd = " ".join(Path(p).name if p.startswith("/") else p for p in c.command).replace("-p no:cacheprovider ", "")
-        ev = c.result["evidence"].replace("|", "\\|")
-        lines.append(
-            f"| {c.id} | {c.rule} | {c.what} | `{cmd}` | {c.result['control']} | {c.result['mutated']} | `{ev}` |"
-        )
+    lines.extend(_row(c) for c in cases)
     (ROOT / "docs" / "mutation-proofs.md").write_text("\n".join(lines) + "\n")
 
 
+def merge_log(rerun: list[Case]) -> None:
+    """Replace the rows of the cases just re-run, keep every other row of the existing log."""
+    path = ROOT / "docs" / "mutation-proofs.md"
+    new_rows = {c.id: _row(c) for c in rerun}
+    lines = []
+    for line in path.read_text().splitlines():
+        case_id = line.split("|")[1].strip() if line.startswith("| M") else None
+        lines.append(new_rows.pop(case_id, line) if case_id else line)
+    lines.extend(new_rows.values())  # a case that was not in the log yet
+    path.write_text("\n".join(lines) + "\n")
+
+
 def main(argv: list[str]) -> int:
-    jobs = 1
-    if argv[:1] == ["--jobs"]:
-        jobs, argv = int(argv[1]), argv[2:]
+    jobs, merge = 1, False
+    while argv[:1] and argv[0] in {"--jobs", "--merge"}:
+        if argv[0] == "--jobs":
+            jobs, argv = int(argv[1]), argv[2:]
+        else:
+            merge, argv = True, argv[1:]
     selected = [c for c in CASES if not argv or c.id in argv]
     with ThreadPoolExecutor(max_workers=jobs) as pool:  # each case works in its own copy of the repository
         ok = list(pool.map(prove, selected))
     if not argv:
         write_log(selected)
+    elif merge:
+        merge_log(selected)
     return 0 if all(ok) else 1
 
 

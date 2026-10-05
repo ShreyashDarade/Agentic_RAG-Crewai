@@ -61,6 +61,13 @@ the cost, not because nothing remained: see "Not done" below.
 | C14 | Smaller false statements (README open routes, `.env.example`, undocumented variables, benchmark figures, `grounded`, ADR claims) | **Fixed**; the variables now have a generated reference (`configuration.md`) and the benchmark stage timings come from `bench.py --stages` |
 | C7, C9 | Embedder error leakage, per-request leaks, metrics and statistics | **Nothing found** |
 
+## How the proofs were produced
+`docs/mutation-proofs.md` has one row per case (110). All rows come from one full run (`scripts/prove_rules.py --jobs 3`) except M89, M92
+and M108, whose cases were corrected after that run showed them to be wrong (a wall-clock bound that quadratic code still met; a mutation
+in the wrong block; a check that needs a git repository) and were re-run with `--merge`. The run also exposed two weak tests (M53 never saw
+the store being reached; M67 and M68 ran the installed checkout instead of the mutated copy) and a mutation that hung instead of failing
+(M75); all were fixed before the log was written. An earlier version of this log had 25 rows for 44 cases.
+
 ## What the review did not find, and what it could not
 * Hosted providers and standalone Milvus were not reachable; those paths were reviewed by reading, not by running.
 * No reviewer ran the CI workflow, the Dockerfile or the compose file.
