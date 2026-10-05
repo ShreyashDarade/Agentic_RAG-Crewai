@@ -135,3 +135,33 @@ def test_dataset_loader_rejects_judgments_for_missing_documents(tmp_path: Path) 
     (root / "qrels" / "test.tsv").write_text("query-id\tcorpus-id\tscore\nq1\tmissing\t1\n")
     with pytest.raises(ValueError, match="missing from the corpus"):
         load_dataset(root)
+
+
+def test_dataset_loader_keeps_the_first_judgment_when_there_is_no_header(tmp_path: Path) -> None:
+    root = _tiny_dataset(tmp_path)
+    (root / "qrels" / "test.tsv").write_text("q1\td1\t1\nq2\td2\t1\n")  # no "query-id corpus-id score" row
+    assert sorted(load_dataset(root).queries) == ["q1", "q2"]  # the first query used to vanish silently
+
+
+def test_dataset_loader_tolerates_blank_lines_and_reports_malformed_ones(tmp_path: Path) -> None:
+    root = _tiny_dataset(tmp_path)
+    (root / "qrels" / "test.tsv").write_text("query-id\tcorpus-id\tscore\nq1\td1\t1\n\n")
+    assert sorted(load_dataset(root).queries) == ["q1"]
+    (root / "qrels" / "test.tsv").write_text("query-id\tcorpus-id\tscore\nq1\td1\n")
+    with pytest.raises(ValueError, match="qrels line 2"):
+        load_dataset(root)
+    (root / "qrels" / "test.tsv").write_text("query-id\tcorpus-id\tscore\nq1\td1\tmaybe\n")
+    with pytest.raises(ValueError, match="qrels line 2"):
+        load_dataset(root)
+
+
+def test_queries_with_no_relevant_document_are_excluded_as_in_trec_eval(tmp_path: Path) -> None:
+    root = _tiny_dataset(tmp_path)
+    (root / "qrels" / "test.tsv").write_text("query-id\tcorpus-id\tscore\nq1\td1\t1\nq2\td2\t0\nq3\td3\t0\nq3\td4\t1\n")
+    ds = load_dataset(root)
+    assert sorted(ds.queries) == [
+        "q1",
+        "q3",
+    ]  # q2 has only a grade-0 judgment: it cannot be answered, so it cannot count
+    run = run_retrieval(ds, lambda q, k: [f"d{q.split()[0].removeprefix('topic')}"], system="oracle-ish", k=10)
+    assert run["n_queries"] == 2

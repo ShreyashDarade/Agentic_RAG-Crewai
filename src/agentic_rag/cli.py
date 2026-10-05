@@ -33,7 +33,11 @@ def _bm25_system(dataset: Dataset, k1: float, b: float) -> tuple[str, object]:
 
 
 def _eval_run(args: argparse.Namespace) -> int:
-    dataset = load_dataset(Path(args.dataset), split=args.split, limit=args.limit)
+    try:
+        dataset = load_dataset(Path(args.dataset), split=args.split, limit=args.limit)
+    except (OSError, ValueError) as exc:
+        print(f"cannot read the dataset: {exc}", file=sys.stderr)
+        return 2
     if args.system != "bm25":
         print(f"unknown system {args.system!r}; available: bm25", file=sys.stderr)
         return 2

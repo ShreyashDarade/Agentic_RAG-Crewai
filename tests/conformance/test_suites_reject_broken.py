@@ -124,6 +124,104 @@ class ScanDropsTheLastBatch(FakeVectorStore):
             yield batch
 
 
+class FirstIdOnlyFilter(FakeVectorStore):
+    async def search(
+        self, vector: Sequence[float], *, top_k: int, filter: ChunkFilter | None = None
+    ) -> list[ScoredChunk]:
+        if filter and filter.document_ids:
+            filter = ChunkFilter(document_ids=filter.document_ids[:1])
+        return await super().search(vector, top_k=top_k, filter=filter)
+
+
+class FilteredSearchLosesOne(FakeVectorStore):
+    async def search(
+        self, vector: Sequence[float], *, top_k: int, filter: ChunkFilter | None = None
+    ) -> list[ScoredChunk]:
+        hits = await super().search(vector, top_k=top_k, filter=filter)
+        return hits[:-1] if filter and filter.document_ids else hits
+
+
+class InsertIfAbsent(FakeVectorStore):
+    async def upsert(
+        self, chunks: Sequence[Chunk], vectors: Sequence[Sequence[float]], *, embedding_model: str
+    ) -> None:
+        fresh = [(c, v) for c, v in zip(chunks, vectors, strict=True) if c.id not in self._rows]
+        await super().upsert([c for c, _ in fresh], [v for _, v in fresh], embedding_model=embedding_model)
+
+
+class DropsFields(FakeVectorStore):
+    """Stores the text but loses the page, the document name or the metadata (each is a separate way to be wrong)."""
+
+    _drop = "page"
+
+    async def upsert(
+        self, chunks: Sequence[Chunk], vectors: Sequence[Sequence[float]], *, embedding_model: str
+    ) -> None:
+        import dataclasses
+
+        damaged = [
+            dataclasses.replace(
+                c,
+                page=None if self._drop == "page" else c.page,
+                document_name="" if self._drop == "name" else c.document_name,
+                metadata={} if self._drop == "metadata" else c.metadata,
+            )
+            for c in chunks
+        ]
+        await super().upsert(damaged, vectors, embedding_model=embedding_model)
+
+
+class DropsPage(DropsFields):
+    _drop = "page"
+
+
+class DropsDocumentName(DropsFields):
+    _drop = "name"
+
+
+class DropsMetadata(DropsFields):
+    _drop = "metadata"
+
+
+class HostileIdsAreExpressions(FakeVectorStore):
+    """get/delete treat an id containing ' or ' as 'everything'."""
+
+    async def delete_document(self, document_id: str, *, keep_chunk_ids: Any = ()) -> int:
+        if " or " in document_id:
+            return sum([await super(HostileIdsAreExpressions, self).delete_document(d) for d in {"docA", "docB"}])
+        return await super().delete_document(document_id, keep_chunk_ids=keep_chunk_ids)
+
+    async def get_document(self, document_id: str) -> Any:
+        if " or " in document_id:
+            return await super().get_document("docA")
+        return await super().get_document(document_id)
+
+
+class DeleteSwallowsOutage(FakeVectorStore):
+    async def delete_document(self, document_id: str, *, keep_chunk_ids: Any = ()) -> int:
+        try:
+            return await super().delete_document(document_id, keep_chunk_ids=keep_chunk_ids)
+        except Exception:  # noqa: BLE001 - the defect under test
+            return 0
+
+
+class CheckSwallowsOutage(FakeVectorStore):
+    async def check(self) -> None:
+        try:
+            await super().check()
+        except Exception:  # noqa: BLE001 - the defect under test
+            return None
+
+
+class ScanSwallowsOutage(FakeVectorStore):
+    async def scan(self, *, batch_size: int) -> Any:
+        try:
+            async for batch in super().scan(batch_size=batch_size):
+                yield batch
+        except Exception:  # noqa: BLE001 - the defect under test
+            return
+
+
 STORE_CASES = [
     (WorstFirst, "test_search_returns_nearest_first_and_respects_top_k"),
     (NoUpsertIdempotence, "test_upsert_is_idempotent"),
@@ -134,6 +232,16 @@ STORE_CASES = [
     (DeleteIgnoresKeep, "test_delete_document_sweeps_all_but_kept"),
     (CatalogWithoutMarker, "test_catalog_requires_the_commit_marker_chunk"),
     (ScanDropsTheLastBatch, "test_scan_yields_every_chunk"),
+    (FirstIdOnlyFilter, "test_filter_accepts_several_documents"),
+    (FilteredSearchLosesOne, "test_a_filtered_search_still_returns_top_k"),
+    (InsertIfAbsent, "test_upsert_replaces_an_existing_chunk"),
+    (DropsPage, "test_every_field_survives_a_round_trip"),
+    (DropsDocumentName, "test_every_field_survives_a_round_trip"),
+    (DropsMetadata, "test_every_field_survives_a_round_trip"),
+    (HostileIdsAreExpressions, "test_hostile_ids_are_data_for_get_and_delete_too"),
+    (DeleteSwallowsOutage, "test_unavailable_backend_raises_a_typed_error"),
+    (CheckSwallowsOutage, "test_unavailable_backend_raises_a_typed_error"),
+    (ScanSwallowsOutage, "test_unavailable_backend_raises_a_typed_error"),
 ]
 
 
@@ -321,6 +429,26 @@ class DropsTheTail(RecursiveChunker):
         return super().chunk(doc, document_id=document_id, document_name=document_name)[:-1]
 
 
+class DropsAMiddleChunk(RecursiveChunker):
+    """Loses text from the middle of the document and renumbers, so only a full-coverage check can notice."""
+
+    def chunk(self, doc: ParsedDocument, *, document_id: str, document_name: str) -> list[Chunk]:
+        import dataclasses
+
+        chunks = super().chunk(doc, document_id=document_id, document_name=document_name)
+        middle = len(chunks) // 2
+        kept = chunks[:middle] + chunks[middle + 1 :]
+        return [dataclasses.replace(c, index=i) for i, c in enumerate(kept)]
+
+
+class IgnoresSizeBound(RecursiveChunker):
+    """Declares a smaller maximum than the chunks it makes."""
+
+    @property
+    def max_chars(self) -> int:
+        return 50
+
+
 class ConstantIds(RecursiveChunker):
     def chunk(self, doc: ParsedDocument, *, document_id: str, document_name: str) -> list[Chunk]:
         import dataclasses
@@ -335,7 +463,9 @@ class ConstantIds(RecursiveChunker):
     ("broken", "expected"),
     [
         (RandomIds, "test_ids_are_deterministic_and_unique"),
-        (DropsTheTail, "test_all_words_are_covered"),
+        (DropsTheTail, "test_every_word_is_covered"),
+        (DropsAMiddleChunk, "test_every_word_is_covered"),
+        (IgnoresSizeBound, "test_no_chunk_is_longer_than_the_declared_maximum"),
         (ConstantIds, "test_ids_are_deterministic_and_unique"),
     ],
 )

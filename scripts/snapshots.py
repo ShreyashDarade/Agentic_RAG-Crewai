@@ -60,6 +60,10 @@ def _describe(obj: Any) -> str:
                 continue
             if inspect.isfunction(member):
                 lines.append(f"    def {name}{inspect.signature(member)}")
+            elif isinstance(member, classmethod | staticmethod):  # Client.http and Client.embedded are classmethods
+                lines.append(f"    {type(member).__name__} {name}{inspect.signature(member.__func__)}")
+            elif isinstance(member, property):
+                lines.append(f"    property {name}")
             elif isinstance(member, (str, int, float, bool)) and name in {
                 "code",
                 "http_status",

@@ -7,7 +7,9 @@ AsyncClient: class AsyncClient()
         def __init__(self, backend: 'Backend') -> 'None'
         def aclose(self) -> 'None'
         def delete_document(self, document_id: 'str') -> 'DeleteResult'
+        classmethod embedded(cls, settings: 'object | None' = None, *, service: 'Service | None' = None) -> 'AsyncClient'
         def get_document(self, document_id: 'str') -> 'DocumentInfo'
+        classmethod http(cls, base_url: 'str', *, api_key: 'str | None' = None, timeout: 'float' = 60.0, connect_timeout: 'float' = 5.0, retry: 'RetryPolicy | None' = None, http_client: 'httpx.AsyncClient | None' = None, verify: 'bool | str' = True, allow_insecure: 'bool' = False) -> 'AsyncClient'
         def ingest_document(self, name: 'str', data: 'bytes | BinaryIO | Path') -> 'IngestResult'
         def iter_documents(self, *, page_size: 'int' = 50) -> 'AsyncIterator[DocumentInfo]'
         def list_documents(self, *, limit: 'int' = 50, page_token: 'str | None' = None) -> 'DocumentList'
@@ -18,7 +20,9 @@ Client: class Client()
         def __init__(self, backend: 'Backend') -> 'None'
         def close(self) -> 'None'
         def delete_document(self, document_id: 'str') -> 'DeleteResult'
+        classmethod embedded(cls, settings: 'object | None' = None, *, service: 'Service | None' = None) -> 'Client'
         def get_document(self, document_id: 'str') -> 'DocumentInfo'
+        classmethod http(cls, base_url: 'str', **options: 'Any') -> 'Client'
         def ingest_document(self, name: 'str', data: 'bytes | BinaryIO | Path') -> 'IngestResult'
         def iter_documents(self, *, page_size: 'int' = 50) -> 'Iterator[DocumentInfo]'
         def list_documents(self, *, limit: 'int' = 50, page_token: 'str | None' = None) -> 'DocumentList'
@@ -93,6 +97,7 @@ Settings: class Settings(BaseSettings)
         field use_lexical: <class 'bool'>
         field use_reranker: <class 'bool'>
         field vector_store: <class 'str'>
+        classmethod settings_customise_sources(cls, settings_cls: 'type[BaseSettings]', init_settings: 'PydanticBaseSettingsSource', env_settings: 'PydanticBaseSettingsSource', dotenv_settings: 'PydanticBaseSettingsSource', file_secret_settings: 'PydanticBaseSettingsSource') -> 'tuple[PydanticBaseSettingsSource, ...]'
         def to_limits(self) -> 'Limits'
         def to_retrieval(self) -> 'RetrievalConfig'
 __version__: value '0.1.0'
@@ -299,6 +304,7 @@ Source: class Source(_Response)
 AnswerPipeline: class AnswerPipeline(Protocol)
         def __init__(self, *args, **kwargs)
         def answer(self, question: 'str', *, retriever: 'Retriever', top_k: 'int', filter: 'ChunkFilter | None' = None) -> 'PipelineAnswer'
+        property name
 ChatMessage: class ChatMessage()
         field role: str
         field content: str
@@ -324,6 +330,8 @@ ChunkScanner: class ChunkScanner(Protocol)
 Chunker: class Chunker(Protocol)
         def __init__(self, *args, **kwargs)
         def chunk(self, doc: 'ParsedDocument', *, document_id: 'str', document_name: 'str') -> 'list[Chunk]'
+        property max_chars
+        property version
 Completion: class Completion()
         field text: str
         field prompt_tokens: int | None
@@ -335,7 +343,9 @@ DocumentCatalog: class DocumentCatalog(Protocol)
         def list_documents(self, *, offset: 'int', limit: 'int') -> 'list[DocumentRecord]'
 DocumentParser: class DocumentParser(Protocol)
         def __init__(self, *args, **kwargs)
+        property extensions
         def parse(self, data: 'bytes', *, name: 'str') -> 'ParsedDocument'
+        property version
 DocumentRecord: class DocumentRecord()
         field id: str
         field name: str
@@ -347,8 +357,10 @@ DocumentRecord: class DocumentRecord()
         def __init__(self, id: 'str', name: 'str', content_sha256: 'str', content_type: 'str', chunk_count: 'int', embedding_model: 'str', index_version: 'str' = '') -> None
 Embedder: class Embedder(Protocol)
         def __init__(self, *args, **kwargs)
+        property dimension
         def embed_documents(self, texts: 'Sequence[str]') -> 'list[list[float]]'
         def embed_query(self, text: 'str') -> 'list[float]'
+        property model_id
 Healthcheck: class Healthcheck(Protocol)
         def __init__(self, *args, **kwargs)
         def check(self) -> 'None'
@@ -411,10 +423,11 @@ ChatModelContract: class ChatModelContract()
         def test_returns_text(self) -> 'None'
 ChunkerContract: class ChunkerContract()
         def create(self) -> 'Any'
-        def test_all_words_are_covered(self) -> 'None'
+        def test_every_word_is_covered(self) -> 'None'
         def test_ids_are_deterministic_and_unique(self) -> 'None'
         def test_ids_depend_on_the_document(self) -> 'None'
         def test_indexes_are_sequential_and_text_nonempty(self) -> 'None'
+        def test_no_chunk_is_longer_than_the_declared_maximum(self) -> 'None'
         def test_version_is_declared(self) -> 'None'
 EmbedderContract: class EmbedderContract()
         def create(self) -> 'Any'
@@ -428,8 +441,10 @@ FakeChatModel: class FakeChatModel()
         def complete(self, messages: 'Sequence[ChatMessage]', *, max_tokens: 'int', temperature: 'float' = 0.0, json_mode: 'bool' = False) -> 'Completion'
 FakeEmbedder: class FakeEmbedder()
         def __init__(self, dimension: 'int' = 64, *, fail: 'bool' = False) -> 'None'
+        property dimension
         def embed_documents(self, texts: 'Sequence[str]') -> 'list[list[float]]'
         def embed_query(self, text: 'str') -> 'list[float]'
+        property model_id
 FakeReranker: class FakeReranker()
         def rerank(self, query: 'str', candidates: 'Sequence[ScoredChunk]', *, top_k: 'int') -> 'list[ScoredChunk]'
 FakeRetriever: class FakeRetriever()
@@ -467,16 +482,21 @@ RerankerContract: class RerankerContract()
 VectorStoreContract: class VectorStoreContract()
         def create(self) -> 'Any'
         def create_failing(self) -> 'Any | None'
+        def test_a_filtered_search_still_returns_top_k(self) -> 'None'
         def test_catalog_requires_the_commit_marker_chunk(self) -> 'None'
         def test_delete_document_sweeps_all_but_kept(self) -> 'None'
         def test_ensure_ready_rejects_a_different_dimension_or_model(self) -> 'None'
+        def test_every_field_survives_a_round_trip(self) -> 'None'
+        def test_filter_accepts_several_documents(self) -> 'None'
         def test_filter_restricts_to_documents(self) -> 'None'
         def test_hostile_filter_value_never_matches_other_documents(self) -> 'None'
+        def test_hostile_ids_are_data_for_get_and_delete_too(self) -> 'None'
         def test_list_documents_is_stable_and_pages(self) -> 'None'
         def test_scan_yields_every_chunk(self) -> 'None'
         def test_search_returns_nearest_first_and_respects_top_k(self) -> 'None'
         def test_unavailable_backend_raises_a_typed_error(self) -> 'None'
         def test_upsert_is_idempotent(self) -> 'None'
+        def test_upsert_replaces_an_existing_chunk(self) -> 'None'
 make_chunks: def make_chunks(document_id: 'str', texts: 'list[str]', *, name: 'str' = 'doc.txt') -> 'list[Chunk]'
 
 ## agentic_rag.client  [stable]
@@ -484,7 +504,9 @@ AsyncClient: class AsyncClient()
         def __init__(self, backend: 'Backend') -> 'None'
         def aclose(self) -> 'None'
         def delete_document(self, document_id: 'str') -> 'DeleteResult'
+        classmethod embedded(cls, settings: 'object | None' = None, *, service: 'Service | None' = None) -> 'AsyncClient'
         def get_document(self, document_id: 'str') -> 'DocumentInfo'
+        classmethod http(cls, base_url: 'str', *, api_key: 'str | None' = None, timeout: 'float' = 60.0, connect_timeout: 'float' = 5.0, retry: 'RetryPolicy | None' = None, http_client: 'httpx.AsyncClient | None' = None, verify: 'bool | str' = True, allow_insecure: 'bool' = False) -> 'AsyncClient'
         def ingest_document(self, name: 'str', data: 'bytes | BinaryIO | Path') -> 'IngestResult'
         def iter_documents(self, *, page_size: 'int' = 50) -> 'AsyncIterator[DocumentInfo]'
         def list_documents(self, *, limit: 'int' = 50, page_token: 'str | None' = None) -> 'DocumentList'
@@ -495,7 +517,9 @@ Client: class Client()
         def __init__(self, backend: 'Backend') -> 'None'
         def close(self) -> 'None'
         def delete_document(self, document_id: 'str') -> 'DeleteResult'
+        classmethod embedded(cls, settings: 'object | None' = None, *, service: 'Service | None' = None) -> 'Client'
         def get_document(self, document_id: 'str') -> 'DocumentInfo'
+        classmethod http(cls, base_url: 'str', **options: 'Any') -> 'Client'
         def ingest_document(self, name: 'str', data: 'bytes | BinaryIO | Path') -> 'IngestResult'
         def iter_documents(self, *, page_size: 'int' = 50) -> 'Iterator[DocumentInfo]'
         def list_documents(self, *, limit: 'int' = 50, page_token: 'str | None' = None) -> 'DocumentList'
@@ -582,6 +606,7 @@ Source: class Source(_Response)
 AnswerPipeline: class AnswerPipeline(Protocol)
         def __init__(self, *args, **kwargs)
         def answer(self, question: 'str', *, retriever: 'Retriever', top_k: 'int', filter: 'ChunkFilter | None' = None) -> 'PipelineAnswer'
+        property name
 ChatMessage: class ChatMessage()
         field role: str
         field content: str
@@ -607,6 +632,8 @@ ChunkScanner: class ChunkScanner(Protocol)
 Chunker: class Chunker(Protocol)
         def __init__(self, *args, **kwargs)
         def chunk(self, doc: 'ParsedDocument', *, document_id: 'str', document_name: 'str') -> 'list[Chunk]'
+        property max_chars
+        property version
 Completion: class Completion()
         field text: str
         field prompt_tokens: int | None
@@ -618,7 +645,9 @@ DocumentCatalog: class DocumentCatalog(Protocol)
         def list_documents(self, *, offset: 'int', limit: 'int') -> 'list[DocumentRecord]'
 DocumentParser: class DocumentParser(Protocol)
         def __init__(self, *args, **kwargs)
+        property extensions
         def parse(self, data: 'bytes', *, name: 'str') -> 'ParsedDocument'
+        property version
 DocumentRecord: class DocumentRecord()
         field id: str
         field name: str
@@ -630,8 +659,10 @@ DocumentRecord: class DocumentRecord()
         def __init__(self, id: 'str', name: 'str', content_sha256: 'str', content_type: 'str', chunk_count: 'int', embedding_model: 'str', index_version: 'str' = '') -> None
 Embedder: class Embedder(Protocol)
         def __init__(self, *args, **kwargs)
+        property dimension
         def embed_documents(self, texts: 'Sequence[str]') -> 'list[list[float]]'
         def embed_query(self, text: 'str') -> 'list[float]'
+        property model_id
 Healthcheck: class Healthcheck(Protocol)
         def __init__(self, *args, **kwargs)
         def check(self) -> 'None'

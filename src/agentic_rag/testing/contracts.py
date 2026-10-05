@@ -13,6 +13,7 @@ exercised against deliberately broken implementations in ``tests/conformance`` (
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import math
 from collections.abc import Awaitable, Callable
@@ -144,6 +145,79 @@ class VectorStoreContract:
                 continue
             assert hits == [], f"filter value {payload!r} matched chunks"
 
+    async def test_filter_accepts_several_documents(self) -> None:
+        store = await self._loaded()
+        hits = await store.search(_vec(0, 5), top_k=10, filter=ChunkFilter(document_ids=("docA", "docB")))
+        assert {h.chunk.document_id for h in hits} == {"docA", "docB"}
+        assert len(hits) == 5
+        reversed_order = await store.search(_vec(0, 5), top_k=10, filter=ChunkFilter(document_ids=("docB", "docA")))
+        assert {h.chunk.document_id for h in reversed_order} == {"docA", "docB"}
+
+    async def test_a_filtered_search_still_returns_top_k(self) -> None:
+        store = await self._loaded()
+        only_a = ChunkFilter(document_ids=("docA",))
+        assert len(await store.search(_vec(0), top_k=3, filter=only_a)) == 3  # docA has exactly three chunks
+        assert len(await store.search(_vec(0), top_k=2, filter=only_a)) == 2
+        assert len(await store.search(_vec(0), top_k=50)) == 5
+
+    async def test_upsert_replaces_an_existing_chunk(self) -> None:
+        store = await self._loaded()
+        changed = Chunk(id="ch_docA_1", document_id="docA", index=1, text="alpha TWO REPLACED", document_name="doc.txt")
+        await store.upsert([changed], [_vec(7)], embedding_model=self.model)
+        hits = await store.search(_vec(7), top_k=1)
+        assert hits[0].chunk.id == "ch_docA_1"
+        assert hits[0].chunk.text == "alpha TWO REPLACED"  # the old text and vector are gone, not kept beside it
+        assert len(await store.search(_vec(0), top_k=50)) == 5
+
+    async def test_every_field_survives_a_round_trip(self) -> None:
+        store = await self.create()
+        await store.ensure_ready(dimension=DIM, embedding_model=self.model)
+        meta: dict[str, str | int | float | bool] = {
+            "content_sha256": "ab" * 32,
+            "content_type": ".pdf",
+            "chunk_count": 1,
+            "s": "x",
+            "n": 3,
+            "f": 0.5,
+            "b": True,
+        }
+        chunk = Chunk(
+            id="ch_docP_0",
+            document_id="docP",
+            index=0,
+            text="pages matter",
+            document_name="paper.pdf",
+            page=7,
+            metadata=meta,
+        )
+        plain = Chunk(id="ch_docQ_0", document_id="docQ", index=0, text="no page here", document_name="q.txt")
+        await store.upsert([chunk, plain], [_vec(3), _vec(4)], embedding_model=self.model)
+        found = (await store.search(_vec(3), top_k=1))[0].chunk
+        assert (found.id, found.document_id, found.index, found.text) == ("ch_docP_0", "docP", 0, "pages matter")
+        assert (found.document_name, found.page) == ("paper.pdf", 7)
+        assert dict(found.metadata) == meta
+        assert (await store.search(_vec(4), top_k=1))[0].chunk.page is None
+        record = await store.get_document("docP")
+        assert record is not None
+        assert (record.name, record.content_type, record.chunk_count, record.content_sha256) == (
+            "paper.pdf",
+            ".pdf",
+            1,
+            "ab" * 32,
+        )
+        scanned = {c.id: c async for batch in store.scan(batch_size=10) for c in batch}
+        assert scanned["ch_docP_0"].page == 7 and scanned["ch_docP_0"].document_name == "paper.pdf"
+        assert dict(scanned["ch_docP_0"].metadata) == meta
+
+    async def test_hostile_ids_are_data_for_get_and_delete_too(self) -> None:
+        store = await self._loaded()
+        for payload in ['docA" or document_id != "', "docA' or 1==1 or '", 'x"] or id != ["', "docA\\", "*", ""]:
+            with contextlib.suppress(ValidationFailed):  # refusing a hostile id outright is as good as finding nothing
+                assert await store.get_document(payload) is None, f"get_document({payload!r}) found something"
+            with contextlib.suppress(ValidationFailed):
+                assert await store.delete_document(payload) == 0, f"delete_document({payload!r}) deleted something"
+        assert len(await store.search(_vec(0), top_k=50)) == 5  # nothing was deleted by any of them
+
     async def test_delete_document_sweeps_all_but_kept(self) -> None:
         store = await self._loaded()
         deleted = await store.delete_document("docA", keep_chunk_ids={"ch_docA_0"})
@@ -194,10 +268,21 @@ class VectorStoreContract:
         store = await self.create_failing()
         if store is None:
             _skip("this implementation cannot simulate an unavailable backend")
+
+        async def drain() -> None:
+            async for _ in store.scan(batch_size=1):
+                pass
+
         calls: list[Callable[[], Awaitable[Any]]] = [
             lambda: store.search(_vec(0), top_k=1),
+            lambda: store.search(_vec(0), top_k=1, filter=ChunkFilter(document_ids=("docA",))),
             lambda: store.get_document("docA"),
+            lambda: store.list_documents(offset=0, limit=5),
             lambda: store.upsert(make_chunks("x", ["t"]), [_vec(0)], embedding_model=self.model),
+            lambda: store.delete_document("docA"),
+            lambda: store.ensure_ready(dimension=DIM, embedding_model=self.model),
+            lambda: store.check(),
+            drain,
         ]
         for call in calls:
             try:
@@ -388,9 +473,18 @@ class ChunkerContract:
         assert all(c.text.strip() for c in chunks)
         assert all(c.document_id == "doc_x" and c.document_name == "n.txt" for c in chunks)
 
-    def test_all_words_are_covered(self) -> None:
-        covered = " ".join(c.text for c in self._chunks())
-        assert all(f"word{i}" in covered for i in (0, 999, 1999))
+    def test_every_word_is_covered(self) -> None:
+        covered = " ".join(c.text for c in self._chunks()).split()
+        missing = {f"word{i}" for i in range(2000)} - set(covered)
+        assert not missing, f"{len(missing)} words are in no chunk, for example {sorted(missing)[:3]}"
+
+    def test_no_chunk_is_longer_than_the_declared_maximum(self) -> None:
+        chunker = self.create()
+        assert isinstance(chunker.max_chars, int) and chunker.max_chars > 0
+        longest = max(len(c.text) for c in self._chunks())
+        assert longest <= chunker.max_chars, f"a chunk has {longest} characters, the maximum is {chunker.max_chars}"
+        one_giant_word = "x" * (chunker.max_chars * 3)
+        assert all(len(c.text) <= chunker.max_chars for c in self._chunks(one_giant_word))
 
     def test_version_is_declared(self) -> None:
         assert isinstance(self.create().version, str) and self.create().version
