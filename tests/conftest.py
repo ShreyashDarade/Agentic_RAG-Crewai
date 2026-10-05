@@ -17,12 +17,7 @@ def milvus_uri(tmp_path_factory: pytest.TempPathFactory) -> str:
 
 @pytest.fixture
 def collection_name(request: pytest.FixtureRequest) -> str:
-    return (
-        "t_"
-        + "".join(ch if ch.isalnum() else "_" for ch in request.node.name)[-40:]
-        + "_"
-        + os.urandom(3).hex()
-    )
+    return "t_" + "".join(ch if ch.isalnum() else "_" for ch in request.node.name)[-40:] + "_" + os.urandom(3).hex()
 
 
 API_KEY = "test-key-0123456789abcdef"

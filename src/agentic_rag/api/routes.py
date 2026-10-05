@@ -61,9 +61,7 @@ async def search(body: SearchRequest, service: ServiceDep) -> SearchResponse:
     return await service.search(body)
 
 
-@v1_router.post(
-    "/documents", operation_id="ingest_document", tags=["documents"], responses={413: _PROBLEMS[422]}
-)
+@v1_router.post("/documents", operation_id="ingest_document", tags=["documents"], responses={413: _PROBLEMS[422]})
 async def ingest_document(
     request: Request, response: Response, file: Annotated[UploadFile, File()], service: ServiceDep
 ) -> IngestResult:
@@ -98,9 +96,7 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@health_router.get(
-    "/readyz", operation_id="readyz", tags=["operations"], responses={503: {"model": ReadyResponse}}
-)
+@health_router.get("/readyz", operation_id="readyz", tags=["operations"], responses={503: {"model": ReadyResponse}})
 async def readyz(service: ServiceDep) -> Response:
     """Readiness: every dependency is reachable. Fails honestly."""
     state = await service.ready()

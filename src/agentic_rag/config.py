@@ -153,9 +153,7 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
     names = {ENV_PREFIX + name.upper(): name for name in Settings.model_fields}
     unknown = sorted(k for k in env if k.upper().startswith(ENV_PREFIX) and k.upper() not in names)
     if unknown:
-        raise ConfigurationError(
-            "unknown configuration variables: " + ", ".join(unknown), details={"unknown": unknown}
-        )
+        raise ConfigurationError("unknown configuration variables: " + ", ".join(unknown), details={"unknown": unknown})
     values: dict[str, object] = {names[k.upper()]: v for k, v in env.items() if k.upper() in names}
     try:
         settings = Settings(**values)  # type: ignore[arg-type]

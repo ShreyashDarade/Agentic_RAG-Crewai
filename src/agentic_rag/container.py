@@ -255,13 +255,9 @@ async def build_container(settings: Settings, registries: Registries | None = No
     chunker: Chunker = regs.chunker.create(settings.chunker, settings, ctx)
     parsers: list[DocumentParser] = [regs.parser.create(name, settings, ctx) for name in settings.parsers]
     pipeline: AnswerPipeline = regs.answer_pipeline.create(settings.answer_pipeline, settings, ctx)
-    reranker: Reranker | None = (
-        regs.reranker.create(settings.reranker, settings, ctx) if settings.reranker else None
-    )
+    reranker: Reranker | None = regs.reranker.create(settings.reranker, settings, ctx) if settings.reranker else None
     lexical: LexicalIndex | None = (
-        None
-        if settings.lexical_index == "none"
-        else regs.lexical_index.create(settings.lexical_index, settings, ctx)
+        None if settings.lexical_index == "none" else regs.lexical_index.create(settings.lexical_index, settings, ctx)
     )
 
     retrieval = settings.to_retrieval()

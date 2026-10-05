@@ -69,17 +69,13 @@ def test_ingest_search_list_get_delete_flow(client: TestClient, api_headers: dic
     doc = created.json()["document"]
     again = _upload(client, api_headers, name="other-name.txt")
     assert again.status_code == 200 and again.json()["created"] is False
-    hits = client.post("/v1/search", headers=api_headers, json={"query": "apples red", "top_k": 3}).json()[
-        "hits"
-    ]
+    hits = client.post("/v1/search", headers=api_headers, json={"query": "apples red", "top_k": 3}).json()["hits"]
     assert hits and hits[0]["document_id"] == doc["id"]
     listed = client.get("/v1/documents?limit=1", headers=api_headers).json()
     assert [d["id"] for d in listed["items"]] == [doc["id"]] and listed["next_page_token"] is None
     assert client.get(f"/v1/documents/{doc['id']}", headers=api_headers).json()["name"] == "a.txt"
     assert client.delete(f"/v1/documents/{doc['id']}", headers=api_headers).json()["document_id"] == doc["id"]
-    assert (
-        client.get(f"/v1/documents/{doc['id']}", headers=api_headers).json()["code"] == "DOCUMENT_NOT_FOUND"
-    )
+    assert client.get(f"/v1/documents/{doc['id']}", headers=api_headers).json()["code"] == "DOCUMENT_NOT_FOUND"
 
 
 def test_query_answers_with_citations(client: TestClient, api_headers: dict[str, str], parts) -> None:  # type: ignore[no-untyped-def]
@@ -96,15 +92,11 @@ def test_query_answers_with_citations(client: TestClient, api_headers: dict[str,
 def test_validation_errors_are_problem_json_and_never_echo_the_input(
     client: TestClient, api_headers: dict[str, str]
 ) -> None:
-    r = client.post(
-        "/v1/query", headers=api_headers, json={"question": "", "top_k": "SECRET-INPUT", "extra": 1}
-    )
+    r = client.post("/v1/query", headers=api_headers, json={"question": "", "top_k": "SECRET-INPUT", "extra": 1})
     assert r.status_code == 422 and r.headers["content-type"].startswith(PROBLEM)
     assert r.json()["code"] == "VALIDATION_FAILED"
     assert "SECRET-INPUT" not in r.text
-    assert (
-        client.post("/v1/query", headers=api_headers, json={"question": "x", "top_k": 51}).status_code == 422
-    )
+    assert client.post("/v1/query", headers=api_headers, json={"question": "x", "top_k": 51}).status_code == 422
     assert client.get("/v1/documents?limit=1000", headers=api_headers).status_code == 422
 
 
@@ -114,9 +106,7 @@ def test_unknown_routes_and_methods_are_problems(client: TestClient, api_headers
     assert r.status_code == 405 and r.json()["code"] == "METHOD_NOT_ALLOWED"
 
 
-def test_oversized_upload_is_rejected_before_it_is_read(
-    client: TestClient, api_headers: dict[str, str]
-) -> None:
+def test_oversized_upload_is_rejected_before_it_is_read(client: TestClient, api_headers: dict[str, str]) -> None:
     r = _upload(client, api_headers, data=b"a" * 300_000)
     assert r.status_code == 413 and r.json()["code"] == "PAYLOAD_TOO_LARGE"
     assert r.headers["x-request-id"]
@@ -176,7 +166,5 @@ def test_the_app_refuses_to_start_without_keys_unless_explicitly_open() -> None:
 
 
 def test_cors_is_off_by_default(client: TestClient) -> None:
-    r = client.options(
-        "/v1/query", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"}
-    )
+    r = client.options("/v1/query", headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"})
     assert "access-control-allow-origin" not in r.headers

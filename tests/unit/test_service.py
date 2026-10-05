@@ -84,9 +84,7 @@ async def test_query_returns_cited_sources_and_flags_grounding() -> None:
     ing = await service.ingest_document("a.txt", TEXT)
     chunk_ids = [h.chunk_id for h in (await service.search(SearchRequest(query="apples red fruit"))).hits]
     chat._replies = [json.dumps({"answer": "Apples are red.", "citations": [chunk_ids[0]]})]
-    out = await service.query(
-        QueryRequest(question="what colour are apples?", document_ids=[ing.document.id])
-    )
+    out = await service.query(QueryRequest(question="what colour are apples?", document_ids=[ing.document.id]))
     assert out.grounded and out.citations == [chunk_ids[0]] and out.pipeline == "direct"
     assert chunk_ids[0] in {s.chunk_id for s in out.sources}
 

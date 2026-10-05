@@ -32,9 +32,7 @@ class RecursiveChunker:
         for page, text in pages:
             for piece in self._split(text):
                 index = len(chunks)
-                cid = (
-                    "ch_" + hashlib.sha256(f"{document_id}:{index}:{self.version}".encode()).hexdigest()[:32]
-                )
+                cid = "ch_" + hashlib.sha256(f"{document_id}:{index}:{self.version}".encode()).hexdigest()[:32]
                 chunks.append(
                     Chunk(
                         id=cid,

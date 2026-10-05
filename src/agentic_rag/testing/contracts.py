@@ -405,8 +405,7 @@ class AnswerPipelineContract:
     @staticmethod
     def _hits() -> list[ScoredChunk]:
         return [
-            ScoredChunk(c, 1.0 - i / 10)
-            for i, c in enumerate(make_chunks("d", ["red apples are fruit", "blue sky"]))
+            ScoredChunk(c, 1.0 - i / 10) for i, c in enumerate(make_chunks("d", ["red apples are fruit", "blue sky"]))
         ]
 
     @staticmethod
@@ -419,9 +418,7 @@ class AnswerPipelineContract:
         from agentic_rag.testing.fakes import FakeChatModel, FakeRetriever
 
         chat = FakeChatModel([self._reply("Apples are fruit.", ["ch_d_0"])])
-        out = await self.create(chat).answer(
-            "what are apples", retriever=FakeRetriever(self._hits()), top_k=5
-        )
+        out = await self.create(chat).answer("what are apples", retriever=FakeRetriever(self._hits()), top_k=5)
         assert out.text and set(out.cited_chunk_ids) <= {h.chunk.id for h in out.retrieved}
         assert out.cited_chunk_ids == ("ch_d_0",)
 
@@ -447,9 +444,7 @@ class AnswerPipelineContract:
         from agentic_rag.testing.fakes import FakeChatModel, FakeRetriever
 
         try:
-            await self.create(FakeChatModel(fail=True)).answer(
-                "q", retriever=FakeRetriever(self._hits()), top_k=5
-            )
+            await self.create(FakeChatModel(fail=True)).answer("q", retriever=FakeRetriever(self._hits()), top_k=5)
         except ModelFailed:
             return
         raise AssertionError("a failing model did not raise ModelFailed")

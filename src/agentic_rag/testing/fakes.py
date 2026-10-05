@@ -131,9 +131,7 @@ class FakeVectorStore:
 
     async def list_documents(self, *, offset: int, limit: int) -> list[DocumentRecord]:
         self._guard()
-        heads = sorted(
-            ((c, m) for c, _, m in self._rows.values() if c.index == 0), key=lambda cm: cm[0].document_id
-        )
+        heads = sorted(((c, m) for c, _, m in self._rows.values() if c.index == 0), key=lambda cm: cm[0].document_id)
         return [_record(c, m) for c, m in heads[offset : offset + limit]]
 
     async def scan(self, *, batch_size: int) -> AsyncIterator[list[Chunk]]:
@@ -185,9 +183,7 @@ class FakeRetriever:
         self._hits = list(hits)
         self.calls: list[tuple[str, int, ChunkFilter | None]] = []
 
-    async def retrieve(
-        self, query: str, *, top_k: int, filter: ChunkFilter | None = None
-    ) -> list[ScoredChunk]:
+    async def retrieve(self, query: str, *, top_k: int, filter: ChunkFilter | None = None) -> list[ScoredChunk]:
         self.calls.append((query, top_k, filter))
         return self._hits[:top_k]
 

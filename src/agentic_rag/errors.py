@@ -27,6 +27,7 @@ __all__ = [
     "FeatureDisabled",
     "IdempotencyKeyReused",
     "IndexIncompatible",
+    "InvalidResponse",
     "LimitExceeded",
     "MethodNotAllowed",
     "ModelFailed",
@@ -315,6 +316,14 @@ class ClientTimeout(RagError):
     code = "CLIENT_TIMEOUT"
     http_status = 0
     public_message = "The client gave up waiting for the server."
+
+
+class InvalidResponse(RagError):
+    """The server answered, but the body did not match the contract this client understands."""
+
+    code = "INVALID_RESPONSE"
+    http_status = 0
+    public_message = "The server returned a response this client could not understand."
 
 
 class RagStatusError(RagError):

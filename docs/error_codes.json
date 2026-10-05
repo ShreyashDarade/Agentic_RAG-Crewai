@@ -84,6 +84,12 @@
     "public_message": "An internal error occurred."
   },
   {
+    "code": "INVALID_RESPONSE",
+    "class": "InvalidResponse",
+    "http_status": 0,
+    "public_message": "The server returned a response this client could not understand."
+  },
+  {
     "code": "LIMIT_EXCEEDED",
     "class": "LimitExceeded",
     "http_status": 422,

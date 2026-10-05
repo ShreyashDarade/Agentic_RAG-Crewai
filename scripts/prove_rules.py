@@ -347,6 +347,114 @@ CASES: list[Case] = [
         PYTEST + ["tests/api/test_api.py"],
         "FAILED",
     ),
+    Case(
+        "M26",
+        "G11 parity (routes)",
+        "the HTTP backend lists documents on the wrong path",
+        [
+            E(
+                S + "sdk/_http.py",
+                '"GET", "/v1/documents", idempotent=True, params=params',
+                '"GET", "/v1/docs", idempotent=True, params=params',
+            )
+        ],
+        PYTEST + ["tests/sdk/test_parity.py"],
+        "FAILED",
+    ),
+    Case(
+        "M27",
+        "G11 parity (errors)",
+        "the HTTP backend stops rebuilding typed errors from problem bodies",
+        [
+            E(
+                S + "sdk/_http.py",
+                "        error = error_from_problem(body, status=response.status_code)\n",
+                "        error = RagStatusError(server_code=str(body['code']), status=response.status_code)\n",
+            )
+        ],
+        PYTEST + ["tests/sdk/test_parity.py"],
+        "FAILED",
+    ),
+    Case(
+        "M28",
+        "G11 parity (readiness)",
+        "the embedded backend always reports ready",
+        [
+            E(
+                S + "embedded.py",
+                "return _same_types_as_http(ReadyResponse, await (await self._svc()).ready())",
+                "return ReadyResponse(ready=True, checks={})",
+            )
+        ],
+        PYTEST + ["tests/sdk/test_parity.py"],
+        "FAILED",
+    ),
+    Case(
+        "M29",
+        "G2 thin client",
+        "the retry module imports openai",
+        [E(S + "sdk/_retry.py", None, "\nimport openai  # noqa\n")],
+        LINT,
+        "thin client",
+    ),
+    Case(
+        "M30",
+        "G2 thin client (runtime proof)",
+        "the client module imports pymilvus",
+        [E(S + "client.py", None, "\nimport pymilvus  # noqa\n")],
+        PYTEST + ["tests/sdk/test_client.py", "-k", "thin"],
+        "FAILED",
+    ),
+    Case(
+        "M31",
+        "Retry matrix",
+        "ambiguous failures are retried for non-idempotent calls",
+        [
+            E(
+                S + "sdk/_http.py",
+                "failure, retry_ok = ConnectionFailed(request_id=request_id), idempotent",
+                "failure, retry_ok = ConnectionFailed(request_id=request_id), True",
+            )
+        ],
+        PYTEST + ["tests/sdk/test_retries.py"],
+        "FAILED",
+    ),
+    Case(
+        "M32",
+        "Retry matrix",
+        "a read timeout is retried",
+        [
+            E(
+                S + "sdk/_http.py",
+                "raise ClientTimeout(request_id=request_id) from exc  # never retried: the work may be running",
+                "failure, retry_ok = ClientTimeout(request_id=request_id), True",
+            )
+        ],
+        PYTEST + ["tests/sdk/test_retries.py"],
+        "FAILED",
+    ),
+    Case(
+        "M33",
+        "G18 deprecation policy",
+        "removal in the same major is allowed",
+        [E(S + "_compat.py", "if remove_v[0] <= since_v[0]:", "if False:")],
+        PYTEST + ["tests/unit/test_compat.py"],
+        "FAILED",
+    ),
+    Case(
+        "M34",
+        "Security: key over plain http",
+        "the client sends the API key over http to any host",
+        [
+            E(
+                S + "client.py",
+                'if key and parts.scheme == "http" and parts.hostname not in _LOCAL_HOSTS and not allow_insecure:',
+                "if False:",
+            )
+        ],
+        PYTEST + ["tests/sdk/test_client.py"],
+        "FAILED",
+    ),
 ]
 
 
@@ -428,9 +536,7 @@ def write_log(cases: list[Case]) -> None:
         "|---|---|---|---|---|---|---|",
     ]
     for c in cases:
-        cmd = " ".join(Path(p).name if p.startswith("/") else p for p in c.command).replace(
-            "-p no:cacheprovider ", ""
-        )
+        cmd = " ".join(Path(p).name if p.startswith("/") else p for p in c.command).replace("-p no:cacheprovider ", "")
         ev = c.result["evidence"].replace("|", "\\|")
         lines.append(
             f"| {c.id} | {c.rule} | {c.what} | `{cmd}` | {c.result['control']} | {c.result['mutated']} | `{ev}` |"

@@ -82,11 +82,7 @@ class InjectableFilter(FakeVectorStore):
     async def search(
         self, vector: Sequence[float], *, top_k: int, filter: ChunkFilter | None = None
     ) -> list[ScoredChunk]:
-        if (
-            filter
-            and filter.document_ids
-            and any(" or " in d or d.endswith("\\") for d in filter.document_ids)
-        ):
+        if filter and filter.document_ids and any(" or " in d or d.endswith("\\") for d in filter.document_ids):
             filter = None
         return await super().search(vector, top_k=top_k, filter=filter)
 

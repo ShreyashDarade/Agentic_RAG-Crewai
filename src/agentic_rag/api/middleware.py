@@ -82,9 +82,7 @@ class BodyLimitMiddleware:
         # Slack for multipart framing; the service enforces the exact file-size limit.
         limit = self.max_bytes + 64 * 1024
         declared = MutableHeaders(scope=scope).get("content-length")
-        too_large = PayloadTooLarge(
-            details={"max_bytes": self.max_bytes}, request_id=scope.get(REQUEST_ID_SCOPE_KEY)
-        )
+        too_large = PayloadTooLarge(details={"max_bytes": self.max_bytes}, request_id=scope.get(REQUEST_ID_SCOPE_KEY))
         if declared is not None and declared.isdigit() and int(declared) > limit:
             await _send_problem(send, too_large)
             return

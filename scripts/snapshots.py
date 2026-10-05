@@ -16,6 +16,7 @@ import difflib
 import importlib
 import inspect
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,9 @@ PUBLIC_MODULES: dict[str, str] = {
     "agentic_rag.ports": "stable",
     "agentic_rag.registry": "stable",
     "agentic_rag.testing": "stable",
+    "agentic_rag.client": "stable",
+    "agentic_rag.models": "stable",
+    "agentic_rag.extend": "stable",
 }
 
 
@@ -47,9 +51,7 @@ def _describe(obj: Any) -> str:
         lines = [f"class {obj.__name__}({bases})"]
         if hasattr(obj, "model_fields"):
             for name, field in sorted(obj.model_fields.items()):
-                lines.append(
-                    f"    field {name}: {field.annotation}{' (required)' if field.is_required() else ''}"
-                )
+                lines.append(f"    field {name}: {field.annotation}{' (required)' if field.is_required() else ''}")
         elif hasattr(obj, "__dataclass_fields__"):
             for name, field in obj.__dataclass_fields__.items():
                 lines.append(f"    field {name}: {field.type}")
@@ -70,13 +72,20 @@ def _describe(obj: Any) -> str:
     return f"value {obj!r}" if isinstance(obj, (str, int, float, bool)) else f"object {type(obj).__name__}"
 
 
+def _scrub(text: str) -> str:
+    """Remove memory addresses so the snapshot is deterministic."""
+    return re.sub(r" at 0x[0-9a-fA-F]+", "", text)
+
+
 def public_api_text() -> str:
     out = ["# Public API snapshot. Regenerate with: scripts/snapshots.py regenerate", ""]
     for module_name, tier in PUBLIC_MODULES.items():
         module = importlib.import_module(module_name)
         out.append(f"## {module_name}  [{tier}]")
         for name in sorted(module.__all__):
-            out.append(f"{name}: " + _describe(getattr(module, name)).replace("\n", "\n    "))
+            obj = getattr(module, name)
+            tier_note = "  [experimental]" if getattr(obj, "__agentic_rag_tier__", "stable") == "experimental" else ""
+            out.append(f"{name}{tier_note}: " + _scrub(_describe(obj)).replace("\n", "\n    "))
         out.append("")
     return "\n".join(out)
 
@@ -130,9 +139,7 @@ def breaking_error_changes() -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["check", "regenerate"])
     parser.add_argument("--allow-breaking", action="store_true")
     args = parser.parse_args(argv)

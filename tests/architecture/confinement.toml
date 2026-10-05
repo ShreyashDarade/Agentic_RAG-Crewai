@@ -3,7 +3,8 @@
 # Patterns: exact module name, or "pkg.*" for the package and all descendants.
 
 [allowed]
-pydantic          = ["agentic_rag.contracts.*", "agentic_rag.config"]
+pydantic          = ["agentic_rag.contracts.*", "agentic_rag.config", "agentic_rag.client", "agentic_rag.sdk.*", "agentic_rag.embedded"]
+httpx             = ["agentic_rag.sdk.*", "agentic_rag.client"]
 pydantic_settings = ["agentic_rag.config"]
 fastapi           = ["agentic_rag.api.*", "agentic_rag.server"]
 starlette         = ["agentic_rag.api.*"]

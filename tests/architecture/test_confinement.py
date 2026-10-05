@@ -48,9 +48,7 @@ def _matches(module: str, pattern: str) -> bool:
 def test_every_third_party_library_is_classified() -> None:
     allowed = _allowed()
     unclassified = sorted({lib for _, lib in _third_party_imports() if lib not in allowed})
-    assert not unclassified, (
-        f"add these to tests/architecture/confinement.toml (or remove the import): {unclassified}"
-    )
+    assert not unclassified, f"add these to tests/architecture/confinement.toml (or remove the import): {unclassified}"
 
 
 def test_every_library_is_imported_only_by_its_own_package() -> None:
@@ -67,9 +65,7 @@ def test_the_allow_list_has_no_stale_entries() -> None:
     used = {(lib, module) for module, lib in _third_party_imports()}
     for lib, patterns in _allowed().items():
         for pattern in patterns:
-            assert any(_matches(m, pattern) for name, m in used if name == lib), (
-                f"{lib}: {pattern} is never used"
-            )
+            assert any(_matches(m, pattern) for name, m in used if name == lib), f"{lib}: {pattern} is never used"
 
 
 def test_every_top_level_package_is_assigned_to_a_layer() -> None:

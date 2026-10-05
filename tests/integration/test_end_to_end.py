@@ -89,18 +89,14 @@ async def test_pdf_and_docx_through_the_real_stack(container: Container) -> None
     document.save(buffer)
     await container.service.ingest_document("q.pdf", pdf.tobytes())
     await container.service.ingest_document("p.docx", buffer.getvalue())
-    pdf_hit = (await container.service.search(SearchRequest(query="revenue northern region", top_k=1))).hits[
-        0
-    ]
+    pdf_hit = (await container.service.search(SearchRequest(query="revenue northern region", top_k=1))).hits[0]
     assert pdf_hit.document_name == "q.pdf"
     assert pdf_hit.page == 1
     docx_hit = (await container.service.search(SearchRequest(query="penguins krill", top_k=1))).hits[0]
     assert docx_hit.document_name == "p.docx"
 
 
-async def test_restart_rebuilds_the_lexical_index_from_the_store(
-    milvus_uri: str, collection_name: str
-) -> None:
+async def test_restart_rebuilds_the_lexical_index_from_the_store(milvus_uri: str, collection_name: str) -> None:
     first = await _build(milvus_uri, collection_name)
     await _until_ready(first)
     await first.service.ingest_document("fruit.txt", TEXT)
@@ -120,9 +116,7 @@ async def test_the_http_app_over_the_real_container(container: Container) -> Non
     with TestClient(app) as client:
         r = client.post("/v1/documents", headers=headers, files={"file": ("f.txt", TEXT, "text/plain")})
         assert r.status_code == 201
-        chunk = client.post("/v1/search", headers=headers, json={"query": "sunlight scatters"}).json()[
-            "hits"
-        ][0]
+        chunk = client.post("/v1/search", headers=headers, json={"query": "sunlight scatters"}).json()["hits"][0]
         assert "sunlight" in chunk["text"]
         assert client.get("/readyz").json()["ready"] is True
 
@@ -142,9 +136,7 @@ async def test_an_unreachable_milvus_is_reported_honestly_not_hidden() -> None:
     assert json.dumps(ready.model_dump())  # serialisable, no raw dependency text
 
 
-async def test_a_collection_built_with_another_embedding_size_is_refused(
-    milvus_uri: str, collection_name: str
-) -> None:
+async def test_a_collection_built_with_another_embedding_size_is_refused(milvus_uri: str, collection_name: str) -> None:
     first = await _build(milvus_uri, collection_name)
     await first.service.ingest_document("a.txt", TEXT)
     await first.aclose()

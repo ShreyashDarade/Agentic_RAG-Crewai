@@ -176,9 +176,7 @@ class Service:
         async with self._deadline(), self._ingest_slots, self._doc_lock(document_id):
             existing = await self._catalog.get_document(document_id)
             if existing is not None and existing.embedding_model == self._embedder.model_id:
-                return IngestResult(
-                    document=_info(existing), created=False, chunks_indexed=existing.chunk_count
-                )
+                return IngestResult(document=_info(existing), created=False, chunks_indexed=existing.chunk_count)
             parsed = await self._parse(parser, data, safe_name)
             chunks = await asyncio.to_thread(
                 self._chunker.chunk, parsed, document_id=document_id, document_name=safe_name
@@ -189,9 +187,7 @@ class Service:
                 raise LimitExceeded(details={"max_chunks_per_document": self._limits.max_chunks_per_document})
             chunks = _annotate(chunks, sha=sha, extension=extension)
             vectors = await self._embed(chunks)
-            await self._writer.ensure_ready(
-                dimension=self._embedder.dimension, embedding_model=self._embedder.model_id
-            )
+            await self._writer.ensure_ready(dimension=self._embedder.dimension, embedding_model=self._embedder.model_id)
             # Commit marker: chunk 0 carries the document record, so it is written last. A crash
             # before it leaves no catalog entry and a retry (same content, same ids) completes the work.
             order = sorted(range(len(chunks)), key=lambda i: chunks[i].index == 0)

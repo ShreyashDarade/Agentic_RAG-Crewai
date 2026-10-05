@@ -51,9 +51,7 @@ def test_broad_excepts_wrap_or_log_and_never_swallow() -> None:
                 broad += 1
                 raises = any(isinstance(n, ast.Raise) for n in ast.walk(node))
                 logs = any(
-                    isinstance(n, ast.Call)
-                    and isinstance(n.func, ast.Attribute)
-                    and n.func.attr == "exception"
+                    isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "exception"
                     for n in ast.walk(node)
                 )
                 assert raises or logs, f"{path.name}:{node.lineno} swallows an exception"

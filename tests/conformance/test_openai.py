@@ -22,9 +22,7 @@ DIM = 12
 def _handler(status: int = 200, headers: dict[str, str] | None = None) -> httpx.MockTransport:
     def handle(request: httpx.Request) -> httpx.Response:
         if status != 200:
-            return httpx.Response(
-                status, json={"error": {"message": "SECRET-DETAIL", "type": "x"}}, headers=headers
-            )
+            return httpx.Response(status, json={"error": {"message": "SECRET-DETAIL", "type": "x"}}, headers=headers)
         body = json.loads(request.content)
         if request.url.path.endswith("/embeddings"):
             data = [
@@ -51,9 +49,7 @@ def _handler(status: int = 200, headers: dict[str, str] | None = None) -> httpx.
                 "object": "chat.completion",
                 "created": 0,
                 "model": body["model"],
-                "choices": [
-                    {"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}
-                ],
+                "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
             },
         )

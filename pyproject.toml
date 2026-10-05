@@ -67,10 +67,13 @@ markers = [
     "milvus: needs a Milvus engine (Milvus Lite locally, standalone in CI)",
     "slow: long-running tests, excluded from the default run",
 ]
-filterwarnings = ["error::DeprecationWarning:agentic_rag"]
+filterwarnings = [
+    "error::agentic_rag.AgenticRagDeprecationWarning",
+    "error::agentic_rag.AgenticRagFutureWarning",
+]
 
 [tool.ruff]
-line-length = 110
+line-length = 120
 target-version = "py311"
 src = ["src", "tests"]
 
@@ -113,12 +116,13 @@ name = "G1 layers: higher layers may import lower ones, never the reverse (exhau
 type = "layers"
 containers = ["agentic_rag"]
 layers = [
-    "server",
+    "server | embedded",
     "container",
-    "config | api",
-    "application | adapters | testing",
+    "config | api | client",
+    "application | adapters | testing | sdk | models | extend",
     "ports | contracts | registry",
-    "errors | _version",
+    "errors | _compat",
+    "_version",
 ]
 exhaustive = true
 
@@ -163,6 +167,24 @@ forbidden_modules = [
     "pymilvus", "openai", "crewai", "bs4", "lxml", "pymupdf", "fitz", "docx", "numpy", "torch",
 ]
 allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "G2 the thin client reaches only the standard library, httpx and pydantic (even indirectly)"
+type = "forbidden"
+source_modules = ["agentic_rag.client", "agentic_rag.sdk", "agentic_rag.models"]
+forbidden_modules = [
+    "pydantic_settings", "fastapi", "starlette", "uvicorn", "pymilvus", "openai", "crewai", "bs4", "lxml",
+    "pymupdf", "fitz", "docx", "numpy", "torch", "chromadb", "qdrant_client", "agentic_rag.container",
+    "agentic_rag.config", "agentic_rag.adapters", "agentic_rag.api", "agentic_rag.embedded",
+]
+
+[[tool.importlinter.contracts]]
+name = "G2 httpx is confined to the SDK"
+type = "forbidden"
+source_modules = ["agentic_rag"]
+forbidden_modules = ["httpx"]
+allow_indirect_imports = true
+ignore_imports = ["agentic_rag.sdk.** -> httpx", "agentic_rag.client -> httpx"]
 
 # One contract per heavy library: it may be imported only by its own package (direct imports only).
 [[tool.importlinter.contracts]]

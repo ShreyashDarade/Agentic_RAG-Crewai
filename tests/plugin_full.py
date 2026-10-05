@@ -18,9 +18,7 @@ class ShoutingPipeline:
 
         hits = await retriever.retrieve(question, top_k=top_k, filter=filter)
         text = question.upper()
-        return PipelineAnswer(
-            text=text, cited_chunk_ids=tuple(h.chunk.id for h in hits[:1]), retrieved=tuple(hits)
-        )
+        return PipelineAnswer(text=text, cited_chunk_ids=tuple(h.chunk.id for h in hits[:1]), retrieved=tuple(hits))
 
 
 def register(registries: Registries) -> None:

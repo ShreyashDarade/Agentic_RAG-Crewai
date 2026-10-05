@@ -100,9 +100,7 @@ class MilvusStore:
             actual = _vector_dimension(c.describe_collection(self._s.collection))
             if actual != dimension:
                 raise IndexIncompatible(details={"index_dimension": actual, "requested": dimension})
-            rows = c.query(
-                self._s.collection, filter="chunk_index >= 0", output_fields=["embedding_model"], limit=1
-            )
+            rows = c.query(self._s.collection, filter="chunk_index >= 0", output_fields=["embedding_model"], limit=1)
             if rows and rows[0].get("embedding_model") != embedding_model:
                 raise IndexIncompatible(details={"index_model": rows[0].get("embedding_model")})
 
