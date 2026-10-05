@@ -34,6 +34,7 @@ server = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "python-multipart>=0.0.9",
+    "prometheus-client>=0.20",
 ]
 worker = ["agentic-rag[engine]"]
 crewai = ["agentic-rag[engine]", "crewai>=1.14,<2"]
@@ -226,6 +227,14 @@ ignore_imports = [
     "agentic_rag.api.** -> starlette",
     "agentic_rag.server -> fastapi",
 ]
+
+[[tool.importlinter.contracts]]
+name = "G2 prometheus_client is confined to api.metrics"
+type = "forbidden"
+source_modules = ["agentic_rag"]
+forbidden_modules = ["prometheus_client"]
+allow_indirect_imports = true
+ignore_imports = ["agentic_rag.api.metrics -> prometheus_client"]
 
 [[tool.importlinter.contracts]]
 name = "G2 settings library is confined to config"

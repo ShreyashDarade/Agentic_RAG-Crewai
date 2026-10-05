@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFi
 from fastapi.responses import JSONResponse
 
 from agentic_rag.api.auth import require_api_key
+from agentic_rag.api.metrics import CONTENT_TYPE_LATEST
+from agentic_rag.api.ops import check_readiness
 from agentic_rag.application import Service
 from agentic_rag.contracts import (
     DeleteResult,
@@ -24,7 +26,7 @@ from agentic_rag.contracts import (
 from agentic_rag.contracts.models import MAX_PAGE_SIZE
 from agentic_rag.errors import ConfigurationError, PayloadTooLarge
 
-__all__ = ["health_router", "v1_router"]
+__all__ = ["health_router", "ops_router", "v1_router"]
 
 _PROBLEMS: dict[int | str, dict[str, Any]] = {
     code: {"model": ProblemDetails, "description": text}
@@ -49,6 +51,7 @@ ServiceDep = Annotated[Service, Depends(get_service)]
 
 v1_router = APIRouter(prefix="/v1", dependencies=[Depends(require_api_key)], responses=_PROBLEMS)
 health_router = APIRouter()
+ops_router = APIRouter(dependencies=[Depends(require_api_key)])
 
 
 @v1_router.post("/query", operation_id="query", tags=["query"])
@@ -97,10 +100,17 @@ async def healthz() -> dict[str, str]:
 
 
 @health_router.get("/readyz", operation_id="readyz", tags=["operations"], responses={503: {"model": ReadyResponse}})
-async def readyz(service: ServiceDep) -> Response:
-    """Readiness: every dependency is reachable. Fails honestly."""
-    state = await service.ready()
-    return JSONResponse(state.model_dump(), status_code=200 if state.ready else 503)
+async def readyz(request: Request, service: ServiceDep) -> Response:
+    """Readiness: every dependency is reachable and the server is not draining. Fails honestly."""
+    report = await check_readiness(request, service)
+    return JSONResponse(report.model_dump(), status_code=200 if report.ready else 503)
+
+
+@ops_router.get("/metrics", operation_id="metrics", tags=["operations"], include_in_schema=False)
+async def metrics(request: Request, service: ServiceDep) -> Response:
+    """Prometheus exposition. Readiness is re-evaluated first so the gauges match what /readyz says."""
+    await check_readiness(request, service)
+    return Response(request.app.state.metrics.render(), media_type=CONTENT_TYPE_LATEST)
 
 
 async def _read_limited(file: UploadFile, max_bytes: int) -> bytes:

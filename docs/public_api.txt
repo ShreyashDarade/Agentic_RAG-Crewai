@@ -45,10 +45,12 @@ Settings: class Settings(BaseSettings)
         field hnsw_ef_construction: <class 'int'>
         field hnsw_m: <class 'int'>
         field lexical_index: <class 'str'>
+        field log_json: <class 'bool'>
         field log_level: typing.Literal['DEBUG', 'INFO', 'WARNING', 'ERROR']
         field max_chunks_per_document: <class 'int'>
         field max_concurrent_embed_batches: <class 'int'>
         field max_concurrent_ingests: <class 'int'>
+        field max_inflight_requests: <class 'int'>
         field max_page_size: <class 'int'>
         field max_question_chars: <class 'int'>
         field max_top_k: <class 'int'>
@@ -68,6 +70,7 @@ Settings: class Settings(BaseSettings)
         field reranker: str | None
         field rrf_k: <class 'int'>
         field search_ef: <class 'int'>
+        field shutdown_drain_seconds: <class 'float'>
         field use_lexical: <class 'bool'>
         field use_reranker: <class 'bool'>
         field vector_store: <class 'str'>

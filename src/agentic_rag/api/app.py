@@ -9,8 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from agentic_rag._version import __version__
 from agentic_rag.api.config import ApiConfig
 from agentic_rag.api.errors import install_error_handlers
-from agentic_rag.api.middleware import BodyLimitMiddleware, RequestContextMiddleware
-from agentic_rag.api.routes import health_router, v1_router
+from agentic_rag.api.metrics import Metrics
+from agentic_rag.api.middleware import BodyLimitMiddleware, LoadSheddingMiddleware, RequestContextMiddleware
+from agentic_rag.api.routes import health_router, ops_router, v1_router
 from agentic_rag.application import Service
 from agentic_rag.errors import ConfigurationError
 
@@ -42,9 +43,12 @@ def create_app(
     )
     app.state.config = cfg
     app.state.service = service
+    app.state.metrics = metrics = Metrics()
+    app.state.draining = False
     install_error_handlers(app)
     app.include_router(v1_router)
     app.include_router(health_router)
+    app.include_router(ops_router)
     # Last added is outermost: request context wraps everything so every response carries an id.
     if cfg.cors_allow_origins:
         app.add_middleware(
@@ -55,5 +59,6 @@ def create_app(
             allow_credentials=False,
         )
     app.add_middleware(BodyLimitMiddleware, max_bytes=cfg.max_upload_bytes)
-    app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(LoadSheddingMiddleware, max_inflight=cfg.max_inflight, metrics=metrics)
+    app.add_middleware(RequestContextMiddleware, metrics=metrics)
     return app

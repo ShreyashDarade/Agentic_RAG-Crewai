@@ -188,14 +188,17 @@ class Service:
             chunks = _annotate(chunks, sha=sha, extension=extension)
             vectors = await self._embed(chunks)
             await self._writer.ensure_ready(dimension=self._embedder.dimension, embedding_model=self._embedder.model_id)
-            # Commit marker: chunk 0 carries the document record, so it is written last. A crash
-            # before it leaves no catalog entry and a retry (same content, same ids) completes the work.
-            order = sorted(range(len(chunks)), key=lambda i: chunks[i].index == 0)
-            await self._writer.upsert(
-                [chunks[i] for i in order],
-                [vectors[i] for i in order],
-                embedding_model=self._embedder.model_id,
-            )
+            # Two phases: every chunk except chunk 0, then chunk 0. Chunk 0 carries the document record, so it is the
+            # commit marker: a crash before it leaves no catalog entry, and a retry (same content, same ids) finishes.
+            body = [i for i, chunk in enumerate(chunks) if chunk.index != 0]
+            head = [i for i, chunk in enumerate(chunks) if chunk.index == 0]
+            for phase in (body, head):
+                if phase:
+                    await self._writer.upsert(
+                        [chunks[i] for i in phase],
+                        [vectors[i] for i in phase],
+                        embedding_model=self._embedder.model_id,
+                    )
             await self._writer.delete_document(document_id, keep_chunk_ids={chunk.id for chunk in chunks})
             if self._lexical is not None:
                 await asyncio.to_thread(self._reindex_lexical, document_id, chunks)

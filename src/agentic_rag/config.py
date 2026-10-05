@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     max_concurrent_ingests: int = Field(default=4, ge=1, le=64)
     request_deadline_seconds: float = Field(default=55.0, gt=0, le=600)
     health_check_timeout_seconds: float = Field(default=2.0, gt=0, le=30)
+    max_inflight_requests: int = Field(default=64, ge=1, le=10_000)
+    shutdown_drain_seconds: float = Field(default=3.0, ge=0, le=60)
+    log_json: bool = True
 
     # -- retrieval defaults (unmeasured until the evaluation records evidence) ---------------------
     default_top_k: int = Field(default=8, ge=1, le=50)

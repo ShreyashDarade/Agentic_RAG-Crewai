@@ -5,17 +5,28 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+import random
 import re
+import time
 import uuid
 
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from agentic_rag.errors import PayloadTooLarge, RagError
+from agentic_rag.api.metrics import Metrics
+from agentic_rag.errors import Overloaded, PayloadTooLarge, RagError
 
-__all__ = ["REQUEST_ID_SCOPE_KEY", "BodyLimitMiddleware", "RequestContextMiddleware", "request_id_var"]
+__all__ = [
+    "REQUEST_ID_SCOPE_KEY",
+    "BodyLimitMiddleware",
+    "LoadSheddingMiddleware",
+    "RequestContextMiddleware",
+    "request_id_var",
+]
 
 logger = logging.getLogger("agentic_rag.api")
+
+access_logger = logging.getLogger("agentic_rag.access")
 
 REQUEST_ID_SCOPE_KEY = "agentic_rag.request_id"
 request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
@@ -36,10 +47,11 @@ async def _send_problem(send: Send, error: RagError) -> None:
 
 
 class RequestContextMiddleware:
-    """Request id on every request/response/log line, and the last-resort 500 boundary."""
+    """Request id, access log, metrics, and the last-resort 500 boundary (outermost user middleware)."""
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, *, metrics: Metrics | None = None) -> None:
         self.app = app
+        self.metrics = metrics
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -50,11 +62,16 @@ class RequestContextMiddleware:
         scope[REQUEST_ID_SCOPE_KEY] = request_id
         token = request_id_var.set(request_id)
         started = False
+        status = 500
+        began = time.perf_counter()
+        if self.metrics:
+            self.metrics.request_started()
 
         async def send_with_id(message: Message) -> None:
-            nonlocal started
+            nonlocal started, status
             if message["type"] == "http.response.start":
                 started = True
+                status = int(message["status"])
                 MutableHeaders(scope=message)["X-Request-ID"] = request_id
             await send(message)
 
@@ -62,10 +79,55 @@ class RequestContextMiddleware:
             await self.app(scope, receive, send_with_id)
         except Exception:
             logger.exception("unhandled error", extra={"request_id": request_id})
+            if self.metrics:
+                self.metrics.error(RagError.code)
             if not started:
                 await _send_problem(send_with_id, RagError(request_id=request_id))
         finally:
+            elapsed = time.perf_counter() - began
+            route = getattr(scope.get("route"), "path", None) or "unmatched"  # a template, never the raw path
+            if self.metrics:
+                self.metrics.request_finished(scope["method"], route, status, elapsed)
+            access_logger.info(
+                "request",
+                extra={
+                    "event": "request",
+                    "method": scope["method"],
+                    "route": route,
+                    "status": status,
+                    "duration_ms": round(elapsed * 1000, 2),
+                    "request_id": request_id,
+                },
+            )
             request_id_var.reset(token)
+
+
+class LoadSheddingMiddleware:
+    """Bounded in-flight work on ``/v1``: beyond the bound, answer 503 + Retry-After immediately (ADR-0009)."""
+
+    def __init__(self, app: ASGIApp, *, max_inflight: int, metrics: Metrics | None = None) -> None:
+        self.app = app
+        self.max_inflight = max_inflight
+        self.metrics = metrics
+        self._inflight = 0
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not scope["path"].startswith("/v1/"):
+            await self.app(scope, receive, send)
+            return
+        if self._inflight >= self.max_inflight:
+            if self.metrics:
+                self.metrics.shed()
+                self.metrics.error(Overloaded.code)
+            jitter = random.uniform(1, 3)  # noqa: S311 - retry jitter, not security
+            error = Overloaded(retry_after=jitter, request_id=scope.get(REQUEST_ID_SCOPE_KEY))
+            await _send_problem(send, error)
+            return
+        self._inflight += 1
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            self._inflight -= 1
 
 
 class BodyLimitMiddleware:

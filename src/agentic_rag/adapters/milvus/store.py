@@ -25,6 +25,7 @@ T = TypeVar("T")
 
 _FIELDS = ["id", "document_id", "chunk_index", "page", "text", "document_name", "embedding_model", "metadata"]
 _MAX_DOCUMENTS_LISTED = 16_000
+_UPSERT_BATCH = 500
 _UNAVAILABLE_CODES = {2}  # pymilvus: "Fail connecting to server"
 
 
@@ -49,6 +50,7 @@ class MilvusStore:
         # Milvus Lite (a local file URI) is single-process and not safe for concurrent calls.
         self._serial = threading.Lock() if not settings.uri.startswith(("http://", "https://")) else None
         self._exists = False
+        self._verified: tuple[int, str] | None = None  # (dimension, model) already checked against the index
 
     # -- plumbing --------------------------------------------------------------------------------
 
@@ -67,6 +69,7 @@ class MilvusStore:
                 with self._serial:
                     return fn(client)
             except MilvusException as exc:
+                self._verified = None  # whatever we knew about the index may no longer hold
                 if isinstance(exc, MilvusUnavailableException) or exc.code in _UNAVAILABLE_CODES:
                     raise VectorStoreUnavailable() from exc
                 raise VectorStoreError() from exc
@@ -93,9 +96,12 @@ class MilvusStore:
 
     async def ensure_ready(self, *, dimension: int, embedding_model: str) -> None:
         def work(c: MilvusClient) -> None:
+            if self._verified == (dimension, embedding_model):
+                return
             if not self._collection_exists(c):
                 self._create(c, dimension)
                 self._exists = True
+                self._verified = (dimension, embedding_model)
                 return
             actual = _vector_dimension(c.describe_collection(self._s.collection))
             if actual != dimension:
@@ -103,6 +109,7 @@ class MilvusStore:
             rows = c.query(self._s.collection, filter="chunk_index >= 0", output_fields=["embedding_model"], limit=1)
             if rows and rows[0].get("embedding_model") != embedding_model:
                 raise IndexIncompatible(details={"index_model": rows[0].get("embedding_model")})
+            self._verified = (dimension, embedding_model)
 
         await self._run(work)
 
@@ -149,7 +156,9 @@ class MilvusStore:
         ]
 
         def work(c: MilvusClient) -> None:
-            c.upsert(self._s.collection, rows)
+            # Batches keep each gRPC message well below Milvus's 64 MB limit (1536-d float vectors are ~6 KB each).
+            for start in range(0, len(rows), _UPSERT_BATCH):
+                c.upsert(self._s.collection, rows[start : start + _UPSERT_BATCH])
 
         await self._run(work)
 

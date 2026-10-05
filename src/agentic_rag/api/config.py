@@ -13,3 +13,4 @@ class ApiConfig:
     allow_unauthenticated: bool = False
     cors_allow_origins: tuple[str, ...] = ()
     max_upload_bytes: int = 25 * 1024 * 1024
+    max_inflight: int = 64

@@ -455,6 +455,42 @@ CASES: list[Case] = [
         PYTEST + ["tests/sdk/test_client.py"],
         "FAILED",
     ),
+    Case(
+        "M35",
+        "Operability: load shedding",
+        "the in-flight bound is ignored",
+        [E(S + "api/middleware.py", "if self._inflight >= self.max_inflight:", "if False:")],
+        PYTEST + ["tests/api/test_operability.py"],
+        "FAILED",
+    ),
+    Case(
+        "M36",
+        "Operability: one truth",
+        "/metrics stops re-evaluating readiness",
+        [
+            E(
+                S + "api/routes.py",
+                "    await check_readiness(request, service)\n    return Response(request.app.state.metrics.render()",
+                "    return Response(request.app.state.metrics.render()",
+            )
+        ],
+        PYTEST + ["tests/api/test_operability.py"],
+        "FAILED",
+    ),
+    Case(
+        "M37",
+        "Operability: bounded metric labels",
+        "the raw path becomes a metric label",
+        [
+            E(
+                S + "api/middleware.py",
+                'route = getattr(scope.get("route"), "path", None) or "unmatched"',
+                'route = scope["path"]',
+            )
+        ],
+        PYTEST + ["tests/api/test_operability.py"],
+        "FAILED",
+    ),
 ]
 
 

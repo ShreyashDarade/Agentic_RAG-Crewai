@@ -517,7 +517,7 @@
     },
     "/readyz": {
       "get": {
-        "description": "Readiness: every dependency is reachable. Fails honestly.",
+        "description": "Readiness: every dependency is reachable and the server is not draining. Fails honestly.",
         "operationId": "readyz",
         "responses": {
           "200": {
