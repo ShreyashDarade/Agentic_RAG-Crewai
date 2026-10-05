@@ -14,7 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --frozen --python 3.12 --extra engine --extra server --extra parsers --group dev
+      # All extras: type-checking needs the optional libraries installed (a thinner environment than a developer's fails mypy).
+      - run: uv sync --frozen --python 3.12 --extra engine --extra server --extra parsers --extra crewai --extra chroma --extra qdrant --group dev
       - run: uv run ruff check src tests scripts
       - run: uv run ruff format --check src tests scripts
       - run: uv run mypy
@@ -30,16 +31,21 @@ jobs:
           fi
 
   tests:
-    name: tests (python ${{ matrix.python }})
+    name: tests (python ${{ matrix.python }}, ${{ matrix.extras }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python: ["3.11", "3.12", "3.13"]
+        extras: ["minimal", "full"]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --frozen --python ${{ matrix.python }} --extra engine --extra server --extra parsers --group dev
+      - name: Install (minimal = engine/server/parsers; full adds crewai, chroma, qdrant)
+        run: |
+          EXTRAS="--extra engine --extra server --extra parsers"
+          if [ "${{ matrix.extras }}" = "full" ]; then EXTRAS="$EXTRAS --extra crewai --extra chroma --extra qdrant"; fi
+          uv sync --frozen --python ${{ matrix.python }} $EXTRAS --group dev
       - name: Start Milvus standalone (real service)
         run: |
           scripts/dev-services.sh up
