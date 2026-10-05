@@ -6,7 +6,9 @@
 
 `agentic-rag eval run|compare|check` (`src/agentic_rag/evaluation`, `src/agentic_rag/cli.py`):
 
-* **Datasets** are BEIR-format directories (`corpus.jsonl`, `queries.jsonl`, `qrels/test.tsv`). Your own golden set uses the same layout;
+* **Datasets** are BEIR-format directories (`corpus.jsonl`, `queries.jsonl`, `qrels/test.tsv`). Queries with no relevant document
+  (every judgment grade 0) are left out, as trec_eval does. The qrels header is recognised by its non-numeric score, not assumed.
+  Your own golden set uses the same layout;
   `python scripts/fetch_beir.py scifact` downloads the public one into `.dev/beir/` (licensed for non-commercial use, never committed).
 * **Metrics** (definitions pinned in `evaluation/metrics.py`): nDCG@k (linear gain, log2(rank+1) discount), recall@k, precision@k,
   MRR@k, hit@k. Unjudged documents are not relevant. Per-query scores are saved in the run file so any comparison can be paired.
@@ -60,7 +62,7 @@ defaults stay and are recorded as "no evidence for a change", not as optimal. On
 Everything that needs an embedding model or an LLM: dense retrieval, hybrid fusion against dense-only, `candidate_pool`, `rrf_k`,
 chunk size and overlap, reranking, MMR, the HNSW parameters, `direct` against `crewai`, answer faithfulness, answer relevancy and
 citation quality. **No API key or local model was available**, so each of these is `evidence = "unmeasured"` in `docs/defaults.toml`;
-a test fails if a quality default is added without an entry. Features whose benefit is *unproven* are therefore not claimed to help:
+a test fails if a setting is added that is neither given an entry there nor classified as operational. Features whose benefit is *unproven* are therefore not claimed to help:
 reranking ships off, and there is no MMR or multi-query code (the evidence in `research.md` section 3 is that expansion often hurts strong
 retrievers).
 
@@ -70,5 +72,13 @@ hand-labelled set for calibrating a judge. The harness is built so those slot in
 
 ## Gate in CI
 
-`eval check` runs in CI only when a baseline run file is supplied; today the repository ships the SciFact BM25 baseline and no dense
-baseline, so the gate protects the BM25 path (tokeniser, scoring) and nothing else.
+Two different things, kept apart on purpose:
+
+* **A smoke gate that runs in CI on every change** (the `eval-gate` job, and `tests/unit/test_golden_gate.py` in the `tests` job): a
+  committed **synthetic golden set** (`tests/eval/golden`: 24 short documents, 24 queries, one relevant document each, two of them
+  deliberately ambiguous) scored with BM25 and compared with the committed baseline `docs/eval/golden-bm25-baseline.json` (nDCG@10
+  0.985). It fails a build in which tokenising, scoring or ranking is broken (the test also proves it: BM25 ranked worst-first fails the
+  gate, M106). It cannot see subtle quality loss, and it says nothing about real documents.
+* **The measured evaluation on a real dataset** (SciFact above) is a command you run (`eval run`, `eval compare`, `eval check`), not a CI
+  step: the dataset is licensed for non-commercial use and is not committed, and no dense or hybrid baseline exists because no embedding
+  model was available. So the regression gate does **not** protect dense retrieval, fusion, chunking or answer quality.

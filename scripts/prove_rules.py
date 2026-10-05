@@ -1425,7 +1425,7 @@ def write_log(cases: list[Case]) -> None:
         "",
         "Each rule in the governance table (framework section 12) was broken on purpose in a copy of the repository and its check was run;",
         "a rule counts as *enforced* only if the check passes on the clean copy and fails on the mutated one.",
-        "Regenerate with `python scripts/prove_rules.py` (about two minutes). Commands run from the repository root with the project's virtualenv.",
+        "Regenerate with `python scripts/prove_rules.py` (about half an hour: every case runs its check twice). Commands run from the repository root with the project's virtualenv.",
         "",
         "| # | Rule | Mutation | Check | Clean copy | Mutated copy | Evidence (first matching output line) |",
         "|---|---|---|---|---|---|---|",

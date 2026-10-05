@@ -1,15 +1,17 @@
 # Framework
 
 How this system may be built and may change. Written before the rewrite; the code is made to fit it.
-Status: **draft for owner review (Checkpoint 1)**. Nothing below is implemented yet; "enforced by" names the tool that
-*will* enforce it and the step that will add it. A rule with no tool is labelled **review rule**.
+Status: **implemented** (0.1.0). Sections 1-11 state the rules; section 12 lists, for each rule, the check that enforces it, where that check
+runs, and the mutation case in [mutation-proofs.md](mutation-proofs.md) that shows it failing. A rule with no tool is labelled **review rule**.
+Where the build departs from what was first drafted, the text below says so (for example the extras and extension points that were
+planned and not built are listed in section 13).
 Evidence for choices: [baseline](baseline.md) (what exists), [research](research.md) (prior art, cited by row),
 [ADRs](adr/) (the decisions that make an item "fixed").
 
 ## 1. Scope and non-goals
 
-**Product.** A retrieval-augmented question-answering service: ingest documents (PDF, DOCX, images/OCR, text, HTML,
-spreadsheets, slides), index them in Milvus, answer questions with cited sources. Consumers: Python programs that call
+**Product.** A retrieval-augmented question-answering service: ingest documents (text/Markdown/CSV, HTML, PDF, DOCX; no OCR, spreadsheets
+or slides), index them (Milvus by default; Chroma and Qdrant are registered too), answer questions with cited sources. Consumers: Python programs that call
 it over HTTP or embed it in-process, and anything that can speak the checked-in OpenAPI contract.
 
 **Owner decisions (recorded from the scoping questions).**
@@ -50,19 +52,21 @@ Import package `agentic_rag` (distribution `agentic-rag`). Arrows mean "may impo
 
 | Layer | Package | May import | Must not import |
 |---|---|---|---|
-| foundation | `errors`, `registry` | stdlib | everything else |
+| foundation | `errors`, `registry`, `blocking` (bounded worker pools) | stdlib | everything else |
 | foundation | `contracts` | stdlib, pydantic, `errors` | fastapi, httpx, any adapter library |
 | ports | `ports` | foundation, stdlib | any third-party library |
 | application | `application` | ports, foundation | fastapi, httpx, pymilvus, openai, crewai, any adapter |
 | adapters | `adapters.<name>` | ports, foundation, **its own** third-party library | other adapters, application, transports |
-| transports | `api`, `cli` | application, foundation | ports directly, adapters |
+| transports | `api` | application, foundation | ports directly, adapters |
+| entry points | `server`, `embedded`, `cli` | container, api, config; `cli` also `server` | — |
 | SDK | `sdk`, `client`, `models`, `extend`, `testing` | foundation, stdlib, httpx, pydantic | fastapi, pymilvus, openai, crewai, torch, adapters, application (the embedded backend imports `container` lazily and fails with an `ImportError` naming the `engine` extra) |
-| composition root | `container` | everything | — (nothing may import it except `api` startup, `cli`, and the embedded SDK backend) |
+| composition root | `container` | everything | — (nothing may import it except `server`, `cli`, and the embedded SDK backend) |
 
 Third-party confinement (each library lives in exactly one package): `pymilvus` → `adapters.milvus`; `openai` →
-`adapters.openai`; `crewai`, `chromadb`, `qdrant_client`, `docling`, `litellm` → `adapters.crewai` (all CrewAI-backed adapters: `pipeline`, `chat_model`, `embedder`, `vector_store`, `knowledge`, `memory`, `tools`, `chunker`, `parser`); `fastapi`/`starlette`/`uvicorn` → `api`; `httpx` → `sdk`;
-`sentence_transformers`/`torch` → `adapters.rerank_cross_encoder`; `easyocr`/`cv2` → `adapters.ocr_easyocr`;
-`fitz` → `adapters.parser_pdf`; `docx` → `adapters.parser_docx`; … one row per library in `tests/architecture/confinement.toml`.
+`adapters.openai`; `crewai` → `adapters.crewai` (`pipeline`, `chat_model`, `embedder`); `chromadb` → `adapters.chroma`; `qdrant_client` → `adapters.qdrant`
+(ADR-0012: these two use their own client libraries, not CrewAI's); `fastapi`/`starlette` → `api` (and `server` for the app object);
+`uvicorn` → `server`; `httpx` → `sdk`; `fitz` → `adapters.parser_pdf`; `docx` → `adapters.parser_docx`; `bs4` → `adapters.parser_html`;
+… one row per library in `tests/architecture/confinement.toml`.
 
 ## 3. FIXED and FREE
 
@@ -129,12 +133,13 @@ column is checked by a test that every `__all__` name has exactly one tier.
 | **S** | Parsers parse, chunkers chunk, routes translate, services orchestrate; no module imports across its role (layers in §2). | import-linter layers + forbidden contracts; `exhaustive = true` so a new top-level module must be classified. |
 | **O** | Behaviour is added by registering a component in a name→factory registry (entry-point group `agentic_rag.<kind>`, or a module named in config exposing `register(registries)`); never by editing a switch. Unknown name → `UnknownComponent` listing valid names. | `tests/architecture/test_open_closed.py`: a fake plug-in module in the test suite registers a new chunker and a new vector store and the service uses them with **zero edits under `src/`**. |
 | **L** | Every implementation of a port passes the same conformance suite *including failure behaviour* (timeout, bad input, unavailable). | `agentic_rag.testing.contracts` abstract suites run against every built-in; a deliberately broken implementation per suite must be rejected (mutation proof). |
-| **I** | Ports are small, one capability each (e.g. `VectorWriter`, `VectorSearcher`, `Embedder`, `ChatModel`, `Reranker`, `DocumentParser`, `Chunker`, `AnswerPipeline`, `JobQueue`, `Clock`); consumers depend only on what they call. | AST test: a port Protocol has ≤ 6 methods; a service constructor parameter's type is the narrowest port it uses (review rule for "narrowest"). |
+| **I** | Ports are small, one capability each (e.g. `VectorWriter`, `VectorSearcher`, `Embedder`, `ChatModel`, `Reranker`, `DocumentParser`, `Chunker`, `AnswerPipeline`, `LexicalIndex`); consumers depend only on what they call. | AST test: a port Protocol has ≤ 6 methods; a service constructor parameter's type is the narrowest port it uses (review rule for "narrowest"). |
 | **D** | High-level code depends on ports; **one** composition root chooses concrete classes. | import-linter: ports/application import no framework or adapter; only `container` imports `adapters.*`. |
 
-Extension points (fixed contracts): `vector_store`, `embedder`, `chat_model`, `reranker`, `parser` (per file type),
-`chunker`, `answer_pipeline`, `job_queue`, `cache`. Each registry lives in `registry`; each has a `Capabilities`
-declaration (e.g. `supports_filter`, `max_batch`) so conformance tests skip by capability rather than by name.
+Extension points (fixed contracts), exactly the registry kinds in `agentic_rag.registry.KINDS`: `vector_store`, `lexical_index`, `embedder`,
+`chat_model`, `reranker`, `parser` (per file type), `chunker`, `answer_pipeline`. A queue, a cache and a clock were considered and not
+built. There is no capability declaration: a conformance suite skips only what an implementation cannot simulate (for example an
+unreachable backend).
 
 ## 8. Retry, timeout and idempotency (ADR-0009, research §2 B1–B8)
 
@@ -145,10 +150,12 @@ declaration (e.g. `supports_filter`, `max_batch`) so conformance tests skip by c
 | Ambiguous: connection reset after send, `408`, `502`, `504` | only idempotent calls (reads, `DELETE`, and mutations carrying an `Idempotency-Key`) |
 | Read timeout | **never** auto-retried |
 | Non-idempotent call without key (e.g. appending a chat turn) | never re-sent |
-| `DELETE` retry that sees `404` | treated as success of the first attempt |
+| `DELETE` retry that sees `404` | treated as success of an earlier attempt **only if that attempt failed ambiguously** (it may have reached the server); after a never-sent or refused attempt a 404 is a real 404 |
 
-Client total deadline (default 60 s) > server request deadline (default 55 s) > sum of upstream budgets, each computed
-from the remaining budget, so the server's typed `DEADLINE_EXCEEDED` (504) arrives before the client gives up.
+Client total deadline (default 60 s, enforced on the whole attempt, not per socket operation) > server request deadline (default 55 s,
+applied to **every** use case) > the crew's own limit (`crewai_max_seconds`, must be lower; start-up enforces it), so the server's typed
+`DEADLINE_EXCEEDED` (504) arrives before the client gives up. Every call to a dependency also has its own bound: store timeouts, provider
+timeouts, and bounded worker pools that fail fast when a dependency stops answering.
 Retries happen at one layer only (the outermost); server-internal dependency calls retry at most once.
 Full-jitter backoff, per-client retry token bucket. *Enforced by:* SDK matrix tests against a fault-injecting server;
 a test asserting `client_deadline > server_deadline` from the default settings. Exact constants are proposals (Step 12).
@@ -161,10 +168,12 @@ a test asserting `client_deadline > server_deadline` from the default settings. 
    inside a running loop raises `UsageError`, never stalls. `close()` cancels in-flight calls and is idempotent; a failed
    constructor leaks no thread, loop or socket.
 3. Thin install: base dependencies are `httpx` and `pydantic` only. Engine names are absent from `__all__` on a thin install
-   and raise `ImportError` naming the extra. Extras: `engine`, `server`, `worker`, `crewai`, `ocr`, `rerank`, `dev`.
-4. Safety: percent-encode every path id; strict response validation but unknown fields ignored; spec-correct SSE
-   (split only on `\n`, `\r\n`, `\r`; incremental UTF-8; server escapes U+2028/2029/0085); conflicting configuration is an
-   error; an upload stream resumed from mid-file sends identical bytes on both transports.
+   and raise `ImportError` naming the extra. Extras: `engine`, `parsers`, `server`, `crewai`, `chroma`, `qdrant` (a `worker`, `ocr` and `rerank` extra were planned and not built).
+4. Safety: percent-encode every path id (and answer ids URL normalisation would rewrite, `""`, `.`, `..`, with `DOCUMENT_NOT_FOUND`
+   locally, as the server does); strict response validation but unknown fields ignored; failures are always `RagError` whatever the server
+   sends (a hostile status or `Retry-After` cannot raise a raw exception); a closed client raises `UsageError`; a blocking client used
+   after `fork()` fails fast; a dropped blocking client stops its thread; conflicting configuration is an error; an upload stream resumed
+   from mid-file sends identical bytes on both transports. (There is no SSE: streaming is not provided.)
 5. *Enforced by:* `tests/sdk/test_parity.py` (one test body over {embedded, HTTP-through-the-real-app}); a clean-venv test that
    imports the thin client and asserts `sys.modules` contains none of `fastapi, pymilvus, openai, crewai, torch, …`;
    `mypy --strict` + `py.typed` wheel check.
@@ -187,68 +196,79 @@ escalates to a visible warning in the last minor. The repo's own test suite turn
 ## 11. Configuration, security, quality rules
 
 * One typed `Settings` (pydantic-settings), built once at startup (not at import); invalid or unknown values are errors;
-  the process exits before binding a port. Secrets come from the environment (or `*_FILE` mounts), are `SecretStr`, never
-  logged, never in error text. `config/.env` leaves version control; `.env.example` has no values. *Enforced by:* settings
-  tests; secret-redaction test; secret scanner in CI (Step 15/20).
+  the process exits before binding a port. Secrets come from the environment (or `*_FILE` mounts, implemented), are `SecretStr`, never
+  logged, never in error text. `config/.env` left version control (it is **still in git history**); `.env.example` has no values.
+  *Enforced by:* settings tests; secret-redaction tests; `tests/architecture/test_no_secrets_committed.py` (a pattern scan of tracked files;
+  not a substitute for a dedicated scanner or for rotating a leaked key).
 * Every attacker- or accident-controlled quantity is bounded by a setting with a default: upload bytes, pages, pixels,
   archive members/uncompressed bytes, history length, query length, batch size, `top_k`, concurrency, queue depth, timeouts.
-  *Enforced by:* one test per limit that exceeds it and sees its typed rejection.
+  *Enforced by:* `tests/unit/test_limits.py` (one test per limit that exceeds it and sees its typed rejection), mutations M99-M105. Not tested
+  and said so: the crew's `max_iter` (CrewAI enforces it) and `max_concurrent` beyond the refusal test.
 * Filters sent to Milvus are built only in `adapters.milvus.filters`: field names are fixed, every value must match the closed alphabet
   `[A-Za-z0-9._-]{1,128}` (no quote, backslash, bracket or space) before it is rendered, and user text never reaches an expression
   string. Templating (`filter_params`) is not the single path because Milvus Lite does not support it (verified). *Enforced by:*
   conformance injection payloads on every store; mutation M22; `pymilvus` confined to its adapter (import-linter).
-* Uploads: extension allow-list **and** magic bytes, server-generated names, streamed size cap, path resolved and checked
-  `is_relative_to(root)`. Retrieved text is delimited as untrusted data in prompts; the crew's tools are read-only retrieval.
+* Uploads: extension allow-list (no magic-byte sniffing; a parser rejects what it cannot read), no file is written by name, a streamed
+  size cap. Retrieved text is escaped and delimited as untrusted data in prompts; the crew's only tool is read-only retrieval with a search
+  budget and the same context budget.
 * Dependencies audited (`pip-audit --strict` on the lock) per PR and weekly.
 * A default (retrieval depth, fusion, rerank, MMR, multi-query, `ef`, crew vs direct) is **backed by a measurement or
   marked "unmeasured"** in `docs/evaluation.md`; a feature that hurts defaults OFF. *Enforced by:* a test that every
-  default in `Settings` has an entry in `docs/defaults.toml` with `evidence = "<run id>" | "unmeasured"`.
-* Observability contract: request id on every request/response/log line/error body; `/healthz` checks no dependency;
-  `/readyz` fails honestly when Milvus is down or models are not loaded; metrics use bounded labels (route template, not path).
+  setting is either given an entry in `docs/defaults.toml` with `evidence = "<run file>" | "unmeasured"` or classified operational in the test.
+* Observability contract: request id on every request/response/log line/error body; `/healthz` checks no dependency (the image's
+  healthcheck uses it); `/readyz` fails honestly when the store is down, the index does not match the embedder, or the lexical index is
+  still rebuilding; metrics use bounded labels (route template, not path). Under `agentic-rag serve` stdout is JSON lines only.
 
 ## 12. Governance table (rule → check → where it runs)
 
-"Seen fail" cites a case in [mutation-proofs.md](mutation-proofs.md) (regenerate: `python scripts/prove_rules.py`); "Step N" means not yet built. The rule is: break the rule on purpose, watch the check fail, revert.
+"Seen fail" cites cases in [mutation-proofs.md](mutation-proofs.md) (regenerate: `python scripts/prove_rules.py`): the rule is broken on
+purpose in a copy of the repository, the check must fail on the copy and pass on a clean one. CI jobs, by name: `static` (ruff, mypy,
+import-linter, snapshots, griffe once a release tag exists), `tests` (the whole pytest suite on Python 3.11-3.13, minimal and full extras,
+against Milvus standalone), `eval-gate`, `packaging`, `security` (pip-audit), `mutation-proofs`. **None of the CI jobs has been run**: this
+environment has no GitHub Actions; every command in them was run locally.
 
 | # | Rule | Check | Runs in | Seen fail |
 |---|---|---|---|---|
 | G1 | Layer directions (§2) | import-linter `layers`, `exhaustive=true` | CI `static` | M01, M02 |
-| G2 | Third-party confinement; thin client imports stdlib+httpx+pydantic only | import-linter `forbidden` (`include_external_packages`) + `tests/architecture/test_confinement.py` + clean-venv `sys.modules` test | CI `static`, `packaging` | M03, M04, M05 |
+| G2 | Third-party confinement; thin client imports stdlib+httpx+pydantic only | import-linter `forbidden` (`include_external_packages`) + `tests/architecture/test_confinement.py` + the thin-import test + `scripts/check_wheel.py` (installs only the wheel in a clean venv) | CI `static`, `tests`, `packaging` | M03, M04, M05, M29, M30, M98 |
 | G3 | Every package classified; every heavy library confined | exhaustive test over the package tree and `confinement.toml` | CI `static` | M06, M07 |
 | G4 | Routes only call the service | import-linter + AST size/call check | CI `static` | M08, M09 |
-| G5 | Public API unchanged unless intended | `public_api.txt` snapshot + `griffe check --against <tag>` | CI `static` | M10, M11 |
-| G6 | Wire contract unchanged unless intended | `openapi.json` regenerate-and-diff + `oasdiff breaking` | CI `static` | M12 |
+| G5 | Public API unchanged unless intended | `public_api.txt` snapshot (functions, classmethods, properties, fields) + `griffe check --against <tag>` | CI `static` (griffe only once a tag exists; locally exercised against `HEAD` by M11) | M10, M11, M80 |
+| G6 | Wire contract unchanged unless intended | `openapi.json` regenerate-and-diff (`oasdiff breaking` is **not** run: not installed here) | CI `static` | M12 |
 | G7 | Error codes append-only, unique, round-trip | `error_codes.json` snapshot + catalog tests | CI `tests` | M13, M14 |
-| G8 | Strict typing on the public package; `py.typed` shipped | `mypy --strict`; wheel content test | CI `static` (types); `packaging` job not built yet | M15 |
-| G9 | Every port implementation conforms | `agentic_rag.testing.contracts` suites over all built-ins and the fake plug-in | CI `tests` | M16, M17 + `test_suites_reject_broken.py` |
-| G10 | Open-closed: add a component with zero core edits | fake plug-in test | CI `static` | M18 |
-| G11 | Transports behave identically | parity suite, plus two-transports-one-engine comparison | CI `parity` | Step 13 |
-| G12 | No silent fallbacks | AST test for swallowed broad excepts; fault-injection tests expect typed errors | CI `tests` | M19, M20 |
-| G13 | Limits enforced | one exceed-the-limit test per limit | CI `tests` | M21 |
-| G14 | Defaults evidence-backed | `defaults.toml` test + `eval check` regression gate | CI `eval` | Step 18 |
-| G15 | Docs match code (claims in README/framework) | docs-vs-code grep test for routes, settings names, extras, codes | CI `docs` | Step 20 |
-| G16 | Dependencies free of known advisories | `pip-audit --strict` | CI `security` (PR; weekly schedule not added yet) | shown ad hoc, see mutation-proofs.md |
+| G8 | Strict typing on the public package; `py.typed` shipped | `mypy --strict`; the wheel check asserts `py.typed` is in the wheel | CI `static`, `packaging` | M15 |
+| G9 | Every port implementation conforms, and the suites reject broken ones | `agentic_rag.testing.contracts` suites over all built-ins and the fake plug-in; `tests/conformance/test_suites_reject_broken.py` runs every suite against deliberately broken implementations (about 40 mutants) | CI `tests` | M16, M17 + the mutants |
+| G10 | Open-closed: add a component with zero core edits | fake plug-in test | CI `tests` | M18 |
+| G11 | Transports behave identically | parity suite (one body over embedded and HTTP-through-the-real-app), plus two-transports-one-engine comparison | CI `tests` | M26, M27, M28, M73, M74 |
+| G12 | No silent fallbacks; dependency text never reaches a caller | AST test for swallowed broad excepts; fault-injection tests expect typed errors; `tests/conformance/test_error_text.py` drives each adapter's error mapping with secret-bearing errors | CI `tests` | M19, M20, M62, M83, M95-M97 |
+| G13 | Limits enforced | `tests/unit/test_limits.py`: one exceed-the-limit test per limit (not covered: the crew's `max_iter`) | CI `tests` | M21, M99-M105 |
+| G14 | Defaults evidence-backed; retrieval regression gate | `defaults.toml` test (every setting classified or documented, values match code) + `eval check` on the committed golden set (synthetic; BM25 only) | CI `tests`, `eval-gate` | M39, M94, M106 |
+| G15 | Docs match code | docs-vs-code tests: routes, settings and `_FILE` names, extras, registered components, every test a providers row cites exists. **Not checked:** error codes in prose, the contents of the benchmark/evaluation tables beyond `bench_report.py` and the defaults test | CI `tests` | M40, M93 |
+| G16 | Dependencies free of known advisories | `pip-audit --strict` | CI `security` (PR; weekly schedule not added) | shown ad hoc, see mutation-proofs.md |
 | G17 | Lint/format | ruff check + format | CI `static` | n/a (tool defaults) |
-| G18 | Deprecation metadata valid; own warnings are errors | decorator tests; pytest `filterwarnings=error` for the package's own category | CI `tests` | Step 14 |
+| G18 | Deprecation metadata valid; own warnings are errors | decorator tests; pytest `filterwarnings=error` for the package's own category | CI `tests` | M33 |
 | G19 | "Two minors of notice" before removal | **review rule — not machine-enforced** | PR checklist | — |
 | G20 | A change to a FIXED item has an ADR | **review rule — not machine-enforced**; mitigated: G5/G6/G7 snapshots fail, forcing the PR to touch a file that the PR template ties to an ADR link | PR template | — |
 | G21 | "Narrowest port" for each consumer | **review rule — not machine-enforced** (size of Protocol *is* checked) | PR checklist | — |
+| G22 | Security controls behave (authentication before work, filters, error text, key transport, request id, operability) | the API, SDK, conformance and live-process tests named in [security.md](security.md) and [operations.md](operations.md) | CI `tests` | M22-M25, M34-M37, M43-M45, M47, M53-M58, M61, M63-M72, M75-M79, M81-M92, M107-M109 |
 
-Not built yet, though listed above: the thin-client half of G2 (no SDK exists), the wheel/`py.typed` half of G8, `oasdiff` in G6 (the snapshot diff is
-enforced; `oasdiff` is not installed here), G11, G14, G15, G18; `griffe check` runs in CI only once a release tag exists (locally it is exercised against `HEAD` by M11).
+Not machine-enforced at all, and said so: G19-G21; that retrieval **defaults** are good (only that each is documented as measured or
+unmeasured); that a benchmark number in prose still equals the JSON it came from (the tables are rendered from the JSON, the sentences
+around them are not checked); ADR text matching the code.
 
-## 13. Open items for the owner at this checkpoint
+## 13. Open items for the owner
 
-0. **Scope amendment received.** After the draft was written you asked for CrewAI's RAG features to be used as fully as possible with multiple providers. That is recorded as ADR-0010 and research §4. Most providers cannot be verified here (no credentials; Docker registry blocked), so `docs/providers.md` will report each as verified or unverified. Please confirm the bounded reading of "100%" (RAG parts only; network/DB/write tools off by default).
-
-1. **Real Milvus for tests.** This sandbox cannot pull the Milvus standalone image (registry blob download returns 502
-   through the network policy). Plan: local/dev tests run on Milvus Lite (a real Milvus engine, embedded; accepts HNSW
-   collection creation — verified), CI runs a Milvus standalone service container. Differences between the two are
-   not yet characterised; the standalone path is therefore **unverified from here**. If you want tests against
-   standalone from this environment, the environment's network policy needs the Docker registry hosts allowed.
-2. **Real OpenAI.** No key was used or read. Evaluation (Step 18) and any real-model integration test need a key supplied
-   through the environment; without one, the harness runs with recorded/cached embeddings and the LLM-judged tier is skipped.
-3. **`config/.env` is tracked in git.** Its contents were not inspected. If it ever held real credentials they must be
-   rotated; removing it from the index is the first implementation commit.
-4. Judgment calls to confirm: version reset to `0.1.0`; default pipeline decided by measurement (crew vs direct);
-   two simultaneous API keys for rotation; `/v1` prefix and `/healthz`, `/readyz` replacing `/health`.
+1. **Real Milvus for tests.** This sandbox cannot pull the Milvus standalone image (registry blob download returns 502 through the
+   network policy). Local/dev tests run on Milvus Lite (a real Milvus engine, embedded); CI starts a Milvus standalone service container.
+   Differences between the two are not characterised; the standalone path is **unverified from here**, including the concurrent first
+   creation of a collection by several replicas.
+2. **Real providers.** No OpenAI, Anthropic or other credentials were used or read. Every hosted provider is unverified against the real
+   service (`docs/providers.md`); embedding- and LLM-dependent quality (dense retrieval, fusion, chunking, `direct` against `crewai`, answer
+   faithfulness) is unmeasured (`docs/defaults.toml`).
+3. **`config/.env` was tracked in git.** Its contents were never inspected. It is out of the index but remains in history: rotate anything
+   that was ever in it.
+4. **CI has not run.** The workflow, the Dockerfile and docker-compose were not executed here; each command in them was run locally.
+5. Planned and not built: an LLM-judged evaluation tier; a reranker; OCR; spreadsheet and slide parsers; per-key rate limits; a subprocess
+   sandbox with a timeout for parsers; moving lexical search into the store so replicas agree; `oasdiff`; a weekly dependency audit.
+6. Judgment calls to confirm: version reset to `0.1.0`; the default pipeline stays `direct` until measured; two simultaneous API keys for
+   rotation; `/v1` prefix and `/healthz`, `/readyz` replacing `/health`; the document id covers the file type as well as the bytes.

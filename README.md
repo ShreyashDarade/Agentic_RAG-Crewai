@@ -25,7 +25,7 @@ Python 3.11, 3.12 and 3.13 are tested. Releases are not published to PyPI yet: i
 ```bash
 export AGENTIC_RAG_API_KEYS=$(python -c "import secrets; print(secrets.token_urlsafe(24))")
 export AGENTIC_RAG_OPENAI_API_KEY=...            # and a Milvus: AGENTIC_RAG_MILVUS_URI=http://localhost:19530
-agentic-rag serve                                # or: uvicorn --factory agentic_rag.server:create
+agentic-rag serve                                # drains on SIGTERM and prints JSON logs only (use this, not bare uvicorn)
 ```
 
 ```python
@@ -53,7 +53,8 @@ Use `AsyncClient` (same methods, `await`) inside an event loop; a blocking `Clie
 
 `POST /v1/documents` (multipart upload), `GET /v1/documents`, `GET /v1/documents/{document_id}`, `DELETE /v1/documents/{document_id}`,
 `POST /v1/search`, `POST /v1/query`; `GET /healthz` (liveness), `GET /readyz` (dependency readiness), `GET /metrics` (Prometheus).
-Everything except `/healthz` and `/readyz` needs `Authorization: Bearer <key>`.
+Every `/v1` route and `/metrics` need `Authorization: Bearer <key>`, checked before any request body is read. `/healthz`, `/readyz`, `/docs`
+and `/openapi.json` are open.
 
 ## What is guaranteed
 
@@ -62,25 +63,29 @@ Everything except `/healthz` and `/readyz` needs `Authorization: Bearer <key>`.
 * **Retries (SDK)**: never-sent failures and `429`/`503` are retried for every call (honouring `Retry-After`, capped); ambiguous failures
   (connection reset, `408`/`502`/`504`) only for idempotent calls; a read timeout is never retried; backoff is full-jitter with a retry
   budget; the total deadline (60 s) is above the server's (55 s) so the server's typed `DEADLINE_EXCEEDED` arrives first.
-* **Ingest is idempotent**: ids derive from the bytes, so re-uploading is a no-op and re-ingesting replaces the document's chunks.
+* **Ingest is idempotent**: ids derive from the file type and bytes, so re-uploading is a no-op. If the chunking or parsing recipe or the
+  embedding model changed, re-uploading re-indexes the document and sweeps the old chunks. The document record (chunk 0) is written
+  last: until it lands the document is not listed, a failed new ingest is cleaned up, and a retry does the whole job.
 * **Answers are checked**: output must be valid JSON and every cited chunk must have been retrieved; nothing is generated when nothing was
   retrieved (`grounded: false`).
 * **Safety**: bearer keys (two may be active), bounded uploads/questions/`top_k`/concurrency, filters from a closed alphabet, no files
-  written by name, no URL fetching, load shedding with `503` + `Retry-After`. See `docs/security.md` for the threat model and its gaps.
+  written by name, no URL fetching, load shedding with `503` + `Retry-After`, a deadline on every use case, and bounded worker pools so a
+  hung database or provider costs typed errors instead of the process. See `docs/security.md` for the threat model and its gaps.
 * **Versioning**: SemVer for the SDK and `/v1`; additive-only within a major; machine-checked by snapshots of the OpenAPI document, the
   public API and the error codes. "Two minor releases of notice before removal" is a review rule, not machine-enforced.
 
 ## Not provided
 
 No user accounts, tenants or per-document access control (every key holder sees every document). No streaming. No OCR (scanned PDFs are
-rejected as empty), no `.xlsx`/`.pptx`, no reranker, no conversation memory. The BM25 index is per process (see `docs/operations.md`).
+rejected as empty), no `.xlsx`/`.pptx`, no reranker, no conversation memory, no interruption of a parser that is running. The BM25 index is per process (see `docs/operations.md`).
 Hosted providers (OpenAI, Anthropic, Cohere, …) and standalone Milvus were **not** exercised against the real services here; Milvus Lite,
 Chroma, Qdrant and local OpenAI-compatible stubs were. No LLM-judged answer-quality evaluation exists.
 
 ## Configuration
 
 Environment only, prefix `AGENTIC_RAG_`; an unknown or invalid variable stops the process before it binds a port, and the error names the
-variable, never its value. `.env.example` lists the secrets; nothing secret is committed. Components are chosen by name
+variable, never its value. Every secret can also be given as the path of a file (`AGENTIC_RAG_OPENAI_API_KEY_FILE`, for mounted secrets).
+`AGENTIC_RAG_API_KEY` is the SDK's variable; the server ignores it. `.env.example` lists the secrets; nothing secret is committed. Components are chosen by name
 (`AGENTIC_RAG_VECTOR_STORE`, `_EMBEDDER`, `_CHAT_MODEL`, `_ANSWER_PIPELINE`) and extended with plug-ins (`AGENTIC_RAG_PLUGINS`,
 `agentic_rag.extend`, `agentic_rag.testing`).
 
@@ -91,8 +96,9 @@ uv sync --extra engine --extra server --extra parsers --extra crewai --extra chr
 scripts/dev-services.sh up && eval "$(scripts/dev-services.sh env)"      # Milvus: standalone via docker if reachable, else Lite
 uv run pytest                      # unit, conformance, API, SDK parity, integration on real local engines
 uv run lint-imports && uv run mypy && uv run ruff check src tests scripts && uv run python scripts/snapshots.py check
+uv run python scripts/check_wheel.py   # build the wheel, install only it, prove the thin client imports no engine library
 uv run python scripts/prove_rules.py   # break every governance rule on purpose; each check must fail (docs/mutation-proofs.md)
 ```
 
 Where to read next: `docs/framework.md` (the rules and the checks that enforce them), `docs/adr/` (why), `docs/baseline.md` (where this
-started), `docs/operations.md`, `docs/benchmark.md`, `docs/evaluation.md`, `docs/providers.md`, `CHANGELOG.md`.
+started), `docs/operations.md`, `docs/security.md`, `docs/configuration.md` (every setting, generated), `docs/benchmark.md`, `docs/evaluation.md`, `docs/providers.md`, `docs/review-round-1.md` (what an independent review found and what became of each finding), `CHANGELOG.md`.

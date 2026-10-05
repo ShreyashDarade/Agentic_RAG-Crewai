@@ -6,7 +6,7 @@
     scripts/snapshots.py regenerate --allow-breaking   also allow removing/changing error codes
 
 Snapshots: docs/openapi.json (wire contract), docs/public_api.txt (public SDK surface),
-docs/error_codes.json (error taxonomy).
+docs/error_codes.json (error taxonomy), docs/configuration.md (every setting, generated).
 """
 
 from __future__ import annotations
@@ -94,6 +94,40 @@ def public_api_text() -> str:
     return "\n".join(out)
 
 
+def configuration_text() -> str:
+    """Every setting, generated from the code, so the reference cannot lag behind it."""
+    from agentic_rag.config import ENV_PREFIX, FILE_SUFFIX, Settings
+
+    lines = [
+        "# Configuration reference",
+        "",
+        "Generated from `agentic_rag.config.Settings` by `scripts/snapshots.py regenerate`; do not edit. Every variable has the prefix",
+        f"`{ENV_PREFIX}`. A secret may instead be given as the path of a file in the variable with the suffix `{FILE_SUFFIX}`",
+        "(for mounted secrets), never both. An unknown variable in this namespace stops the process before it binds a port; the error names",
+        "the variable and never its value. Meaning and operating advice: `docs/operations.md`, `docs/security.md`, `docs/providers.md`.",
+        "",
+        "| Variable | Default | Allowed | Secret |",
+        "|---|---|---|---|",
+    ]
+    for name, field in Settings.model_fields.items():
+        default = field.default if field.default_factory is None else field.default_factory()  # type: ignore[call-arg]
+        secret = "SecretStr" in str(field.annotation)
+        bounds = []
+        for meta in field.metadata:
+            for attr in ("ge", "gt", "le", "lt", "min_length", "max_length", "pattern"):
+                if getattr(meta, attr, None) is not None:
+                    bounds.append(f"{attr} {getattr(meta, attr)}")
+        allowed = ", ".join(bounds)
+        annotation = str(field.annotation).replace("typing.", "").replace("<class '", "").replace("'>", "")
+        if "Literal" in annotation:
+            allowed = annotation[annotation.index("[") + 1 : annotation.rindex("]")].replace("'", "")
+        shown = "(unset)" if default in (None, [], "") else f"`{default}`"
+        lines.append(
+            f"| `{ENV_PREFIX}{name.upper()}` | {shown} | {allowed.replace('|', '/')} | {'yes' if secret else ''} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def error_codes() -> list[dict[str, Any]]:
     from agentic_rag.errors import catalog
 
@@ -116,6 +150,7 @@ SNAPSHOTS = {
     "openapi.json": openapi_text,
     "public_api.txt": public_api_text,
     "error_codes.json": error_codes_text,
+    "configuration.md": configuration_text,
 }
 
 
