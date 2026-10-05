@@ -66,9 +66,9 @@ def _eval_check(args: argparse.Namespace) -> int:
 
 
 def _serve(args: argparse.Namespace) -> int:
-    import uvicorn
+    from agentic_rag.server import serve
 
-    uvicorn.run("agentic_rag.server:create", factory=True, host=args.host, port=args.port, timeout_graceful_shutdown=30)
+    serve(args.host, args.port)
     return 0
 
 

@@ -6,6 +6,8 @@ import asyncio
 
 from agentic_rag.application.fusion import reciprocal_rank_fusion
 from agentic_rag.application.limits import RetrievalConfig
+from agentic_rag.blocking import BlockingPool
+from agentic_rag.errors import Overloaded
 from agentic_rag.ports import (
     ChunkFilter,
     Embedder,
@@ -35,6 +37,10 @@ class HybridRetriever:
         self._lexical = lexical if config.use_lexical else None
         self._reranker = reranker if config.use_reranker else None
         self._config = config
+        self._pool = BlockingPool("lexical-search", workers=2, backlog=256, saturated=Overloaded)
+
+    def close(self) -> None:
+        self._pool.close()
 
     async def retrieve(
         self,
@@ -49,7 +55,7 @@ class HybridRetriever:
             dense = await dense_task
             candidates = dense
         else:
-            lexical_task = asyncio.to_thread(self._lexical.search, query, top_k=pool, filter=filter)
+            lexical_task = self._pool.run(self._lexical.search, query, top_k=pool, filter=filter)
             dense, lexical = await asyncio.gather(dense_task, lexical_task)
             candidates = reciprocal_rank_fusion([dense, lexical], k=self._config.rrf_k, top_k=pool)
         if self._reranker is not None and candidates:

@@ -12,6 +12,7 @@ __all__ = ["PdfParser"]
 
 class PdfParser:
     extensions = frozenset({".pdf"})
+    version = "1"
 
     def __init__(self, *, max_pages: int = 500) -> None:
         self._max_pages = max_pages

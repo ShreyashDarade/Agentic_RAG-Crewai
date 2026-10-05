@@ -11,12 +11,14 @@ import base64
 import binascii
 import dataclasses
 import hashlib
+import logging
 import re
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
 
 from agentic_rag.application.limits import Limits, RetrievalConfig
+from agentic_rag.blocking import BlockingPool
 from agentic_rag.contracts import (
     DeleteResult,
     DocumentInfo,
@@ -36,8 +38,10 @@ from agentic_rag.errors import (
     DocumentNotFound,
     DocumentParseFailed,
     EmbeddingFailed,
+    IndexIncompatible,
     LimitExceeded,
     ModelOutputInvalid,
+    Overloaded,
     PayloadTooLarge,
     RagError,
     UnsupportedFileType,
@@ -54,7 +58,6 @@ from agentic_rag.ports import (
     Embedder,
     Healthcheck,
     LexicalIndex,
-    ParsedDocument,
     Retriever,
     ScoredChunk,
     VectorWriter,
@@ -62,8 +65,12 @@ from agentic_rag.ports import (
 
 __all__ = ["Service", "sanitize_name"]
 
+logger = logging.getLogger("agentic_rag.service")
+
 _SNIPPET_CHARS = 300
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+_DOCUMENT_ID = re.compile(r"^doc_[0-9a-f]{32}$")  # the only shape this service ever issues
+_CLEANUP_SECONDS = 5.0
 
 
 def sanitize_name(name: str) -> str:
@@ -73,6 +80,12 @@ def sanitize_name(name: str) -> str:
     if not base or base in {".", ".."}:
         raise ValidationFailed("the file name is empty")
     return base[:255]
+
+
+@dataclasses.dataclass(slots=True)
+class _LockEntry:
+    lock: asyncio.Lock = dataclasses.field(default_factory=asyncio.Lock)
+    users: int = 0
 
 
 class Service:
@@ -106,8 +119,21 @@ class Service:
         self._retrieval = retrieval
         self._health = dict(health_checks)
         self._ingest_slots = asyncio.Semaphore(limits.max_concurrent_ingests)
-        self._doc_locks: dict[str, asyncio.Lock] = {}
-        self._prepared = False
+        self._doc_locks: dict[str, _LockEntry] = {}
+        self._index_checked = False
+        # Parsing and chunking are CPU-bound and cannot be interrupted. A cancelled request must not leave a pile of
+        # them running, so a slot is held until the thread returns (see ``agentic_rag.blocking``).
+        self._cpu = BlockingPool(
+            "ingest-cpu",
+            workers=limits.max_concurrent_ingests,
+            backlog=limits.max_concurrent_ingests,
+            saturated=Overloaded,
+        )
+        self._lexical_pool = BlockingPool("lexical", workers=2, backlog=256, saturated=Overloaded)
+
+    def close(self) -> None:
+        self._cpu.close()
+        self._lexical_pool.close()
 
     # -- queries ---------------------------------------------------------------------------------
 
@@ -115,6 +141,7 @@ class Service:
         question = self._check_text(request.question)
         top_k = self._top_k(request.top_k)
         async with self._deadline():
+            await self._ensure_index()
             result = await self._pipeline.answer(
                 question,
                 retriever=self._retriever,
@@ -140,6 +167,7 @@ class Service:
     async def search(self, request: SearchRequest) -> SearchResponse:
         query = self._check_text(request.query)
         async with self._deadline():
+            await self._ensure_index()
             hits = await self._retriever.retrieve(
                 query,
                 top_k=self._top_k(request.top_k),
@@ -172,48 +200,51 @@ class Service:
         if not data:
             raise DocumentEmpty("the file is empty")
         sha = hashlib.sha256(data).hexdigest()
-        document_id = f"doc_{sha[:32]}"
+        # The id covers what the parser sees: the same bytes as .txt and as .html are different documents.
+        document_id = "doc_" + hashlib.sha256(extension.encode() + b"\0" + data).hexdigest()[:32]
+        index_version = f"{self._chunker.version}+{parser.version}"
+        model = self._embedder.model_id
         async with self._deadline(), self._ingest_slots, self._doc_lock(document_id):
             existing = await self._catalog.get_document(document_id)
-            if existing is not None and existing.embedding_model == self._embedder.model_id:
+            if existing is not None and existing.embedding_model == model and existing.index_version == index_version:
                 return IngestResult(document=_info(existing), created=False, chunks_indexed=existing.chunk_count)
-            parsed = await self._parse(parser, data, safe_name)
-            chunks = await asyncio.to_thread(
-                self._chunker.chunk, parsed, document_id=document_id, document_name=safe_name
-            )
-            if not chunks:
-                raise DocumentEmpty()
-            if len(chunks) > self._limits.max_chunks_per_document:
-                raise LimitExceeded(details={"max_chunks_per_document": self._limits.max_chunks_per_document})
-            chunks = _annotate(chunks, sha=sha, extension=extension)
+            chunks = await self._cpu.run(self._parse_and_chunk, parser, data, safe_name, document_id)
+            chunks = _annotate(chunks, sha=sha, extension=extension, index_version=index_version)
             vectors = await self._embed(chunks)
-            await self._writer.ensure_ready(dimension=self._embedder.dimension, embedding_model=self._embedder.model_id)
-            # Two phases: every chunk except chunk 0, then chunk 0. Chunk 0 carries the document record, so it is the
-            # commit marker: a crash before it leaves no catalog entry, and a retry (same content, same ids) finishes.
+            await self._writer.ensure_ready(dimension=self._embedder.dimension, embedding_model=model)
+            # write -> sweep -> commit (ADR-0007). Chunk 0 carries the document record, so it is the commit marker and
+            # is written last: until it lands the document is not in the catalog and a retry (same ids) does the
+            # whole job again rather than being told it already exists.
             body = [i for i, chunk in enumerate(chunks) if chunk.index != 0]
             head = [i for i, chunk in enumerate(chunks) if chunk.index == 0]
-            for phase in (body, head):
-                if phase:
+            try:
+                if body:
                     await self._writer.upsert(
-                        [chunks[i] for i in phase],
-                        [vectors[i] for i in phase],
-                        embedding_model=self._embedder.model_id,
+                        [chunks[i] for i in body], [vectors[i] for i in body], embedding_model=model
                     )
-            await self._writer.delete_document(document_id, keep_chunk_ids={chunk.id for chunk in chunks})
-            if self._lexical is not None:
-                await asyncio.to_thread(self._reindex_lexical, document_id, chunks)
+                await self._writer.delete_document(document_id, keep_chunk_ids={chunk.id for chunk in chunks})
+                if self._lexical is not None:
+                    await self._lexical_pool.run(self._reindex_lexical, document_id, chunks)
+                await self._writer.upsert([chunks[i] for i in head], [vectors[i] for i in head], embedding_model=model)
+            except BaseException:
+                if existing is None:
+                    await self._discard_uncommitted(document_id)
+                raise
             record = DocumentRecord(
                 id=document_id,
                 name=safe_name,
                 content_sha256=sha,
                 content_type=extension,
                 chunk_count=len(chunks),
-                embedding_model=self._embedder.model_id,
+                embedding_model=model,
+                index_version=index_version,
             )
             return IngestResult(document=_info(record), created=True, chunks_indexed=len(chunks))
 
     async def get_document(self, document_id: str) -> DocumentInfo:
-        record = await self._catalog.get_document(document_id)
+        _require_known_shape(document_id)
+        async with self._deadline():
+            record = await self._catalog.get_document(document_id)
         if record is None:
             raise DocumentNotFound()
         return _info(record)
@@ -222,7 +253,8 @@ class Service:
         if not 1 <= limit <= self._limits.max_page_size:
             raise ValidationFailed(details={"max_page_size": self._limits.max_page_size})
         offset = _decode_token(page_token)
-        records = await self._catalog.list_documents(offset=offset, limit=limit + 1)
+        async with self._deadline():
+            records = await self._catalog.list_documents(offset=offset, limit=limit + 1)
         page = records[:limit]
         more = len(records) > limit
         return DocumentList(
@@ -231,12 +263,16 @@ class Service:
         )
 
     async def delete_document(self, document_id: str) -> DeleteResult:
-        async with self._doc_lock(document_id):
-            if await self._catalog.get_document(document_id) is None:
-                raise DocumentNotFound()
-            deleted = await self._writer.delete_document(document_id)
+        _require_known_shape(document_id)
+        async with self._deadline(), self._doc_lock(document_id):
+            record = await self._catalog.get_document(document_id)
+            # Lexical first: if the store call then fails, the document is still fully findable and the delete can
+            # simply be retried; the other order could leave deleted text searchable until restart.
             if self._lexical is not None:
-                await asyncio.to_thread(self._lexical.remove_document, document_id)
+                await self._lexical_pool.run(self._lexical.remove_document, document_id)
+            deleted = await self._writer.delete_document(document_id)
+            if record is None and deleted == 0:
+                raise DocumentNotFound()  # chunks without a commit marker (an interrupted ingest) are still deletable
         return DeleteResult(document_id=document_id, chunks_deleted=deleted)
 
     # -- readiness -------------------------------------------------------------------------------
@@ -252,8 +288,20 @@ class Service:
                 return "unavailable"
             return "ok"
 
-        names = list(self._health)
-        states = await asyncio.gather(*(run(self._health[n]) for n in names))
+        async def index() -> str:
+            try:
+                async with asyncio.timeout(self._limits.health_check_timeout_seconds):
+                    await self._ensure_index(force=True)
+            except TimeoutError:
+                return "timeout"
+            except IndexIncompatible:
+                return "incompatible"
+            except RagError:
+                return "unavailable"
+            return "ok"
+
+        names = [*self._health, "index"]
+        states = await asyncio.gather(*(run(self._health[n]) if n in self._health else index() for n in names))
         checks = dict(zip(names, states, strict=True))
         return ReadyResponse(ready=all(s == "ok" for s in states), checks=checks)
 
@@ -270,9 +318,62 @@ class Service:
                 raise DeadlineExceeded() from exc
             raise
 
-    def _doc_lock(self, document_id: str) -> asyncio.Lock:
-        # One lock per document id serialises concurrent ingests/deletes of the same content in this process.
-        return self._doc_locks.setdefault(document_id, asyncio.Lock())
+    @asynccontextmanager
+    async def _doc_lock(self, document_id: str) -> AsyncIterator[None]:
+        # One lock per document id serialises concurrent ingests/deletes of the same content in this process. The
+        # entry is removed with its last user, so the table never outgrows the work in flight.
+        entry = self._doc_locks.get(document_id)
+        if entry is None:
+            entry = self._doc_locks[document_id] = _LockEntry()
+        entry.users += 1
+        try:
+            async with entry.lock:
+                yield
+        finally:
+            entry.users -= 1
+            if entry.users == 0:
+                del self._doc_locks[document_id]
+
+    async def _ensure_index(self, *, force: bool = False) -> None:
+        """The index must have been built by this embedder. Cached after the first success on the read path;
+        readiness re-checks every time so a mismatch introduced from outside is reported, not served."""
+        if self._index_checked and not force:
+            return
+        self._index_checked = False
+        await self._writer.ensure_ready(dimension=self._embedder.dimension, embedding_model=self._embedder.model_id)
+        self._index_checked = True
+
+    async def _discard_uncommitted(self, document_id: str) -> None:
+        """Best effort, bounded: remove what a failed ingest wrote so it is not searchable without a catalog entry."""
+        try:
+            async with asyncio.timeout(_CLEANUP_SECONDS):
+                if self._lexical is not None:
+                    await self._lexical_pool.run(self._lexical.remove_document, document_id)
+                await self._writer.delete_document(document_id)
+        except Exception:  # cleanup must never mask the failure that triggered it
+            logger.exception(
+                "could not discard the chunks of a failed ingest", extra={"event": "ingest_cleanup_failed"}
+            )
+
+    def _parse_and_chunk(self, parser: DocumentParser, data: bytes, name: str, document_id: str) -> list[Chunk]:
+        """Runs in a worker thread."""
+        try:
+            parsed = parser.parse(data, name=name)
+        except RagError:
+            raise
+        except Exception as exc:
+            raise DocumentParseFailed() from exc
+        # Every chunk is at most ``max_chars`` long, so text that cannot fit the chunk limit is refused before the
+        # (long) chunking pass rather than after it.
+        non_blank = len(parsed.text) - sum(parsed.text.count(c) for c in " \t\r\n")
+        if non_blank > self._limits.max_chunks_per_document * self._chunker.max_chars:
+            raise LimitExceeded(details={"max_chunks_per_document": self._limits.max_chunks_per_document})
+        chunks = self._chunker.chunk(parsed, document_id=document_id, document_name=name)
+        if not chunks:
+            raise DocumentEmpty()
+        if len(chunks) > self._limits.max_chunks_per_document:
+            raise LimitExceeded(details={"max_chunks_per_document": self._limits.max_chunks_per_document})
+        return chunks
 
     def _check_text(self, text: str) -> str:
         text = text.strip()
@@ -303,14 +404,6 @@ class Service:
             page=hit.chunk.page,
         )
 
-    async def _parse(self, parser: DocumentParser, data: bytes, name: str) -> ParsedDocument:
-        try:
-            return await asyncio.to_thread(parser.parse, data, name=name)
-        except RagError:
-            raise
-        except Exception as exc:
-            raise DocumentParseFailed() from exc
-
     async def _embed(self, chunks: Sequence[Chunk]) -> list[list[float]]:
         batch = self._limits.embed_batch_size
         slots = asyncio.Semaphore(self._limits.max_concurrent_embed_batches)
@@ -320,8 +413,20 @@ class Service:
             async with slots:
                 return await self._embedder.embed_documents(texts[start : start + batch])
 
-        parts = await asyncio.gather(*(run(i) for i in range(0, len(texts), batch)))
-        vectors = [vector for part in parts for vector in part]
+        tasks = [asyncio.create_task(run(i)) for i in range(0, len(texts), batch)]
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+            for task in tasks:  # first failure (or an outer cancellation): the rest must stop calling the provider
+                if task not in done:
+                    task.cancel()
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        for task in tasks:
+            if not task.cancelled() and task.exception() is not None:
+                raise task.exception()  # type: ignore[misc]
+        vectors = [vector for task in tasks for vector in task.result()]
         if len(vectors) != len(chunks) or any(len(v) != self._embedder.dimension for v in vectors):
             raise EmbeddingFailed("the embedder returned the wrong number or size of vectors")
         return vectors
@@ -332,11 +437,18 @@ class Service:
         self._lexical.add(chunks)
 
 
-def _annotate(chunks: Sequence[Chunk], *, sha: str, extension: str) -> list[Chunk]:
+def _require_known_shape(document_id: str) -> None:
+    """An id this service could never have issued names no document: answer without a store round trip or a lock."""
+    if not _DOCUMENT_ID.fullmatch(document_id):
+        raise DocumentNotFound()
+
+
+def _annotate(chunks: Sequence[Chunk], *, sha: str, extension: str, index_version: str) -> list[Chunk]:
     extra: dict[str, str | int | float | bool] = {
         "content_sha256": sha,
         "content_type": extension,
         "chunk_count": len(chunks),
+        "index_version": index_version,
     }
     return [dataclasses.replace(c, metadata={**c.metadata, **extra}) for c in chunks]
 

@@ -39,7 +39,7 @@ def test_every_v1_route_requires_the_api_key(client: TestClient) -> None:
 def test_health_and_readiness_need_no_key(client: TestClient) -> None:
     assert client.get("/healthz").json() == {"status": "ok"}
     r = client.get("/readyz")
-    assert r.status_code == 200 and r.json() == {"ready": True, "checks": {"vector_store": "ok"}}
+    assert r.status_code == 200 and r.json() == {"ready": True, "checks": {"vector_store": "ok", "index": "ok"}}
 
 
 def test_readiness_goes_503_honestly_when_the_store_is_down(client: TestClient, parts) -> None:  # type: ignore[no-untyped-def]
@@ -47,7 +47,7 @@ def test_readiness_goes_503_honestly_when_the_store_is_down(client: TestClient, 
     store._unavailable = True
     r = client.get("/readyz")
     assert r.status_code == 503
-    assert r.json() == {"ready": False, "checks": {"vector_store": "unavailable"}}
+    assert r.json() == {"ready": False, "checks": {"vector_store": "unavailable", "index": "unavailable"}}
     assert client.get("/healthz").status_code == 200  # liveness never checks dependencies
 
 

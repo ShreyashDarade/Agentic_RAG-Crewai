@@ -341,7 +341,8 @@ DocumentRecord: class DocumentRecord()
         field content_type: str
         field chunk_count: int
         field embedding_model: str
-        def __init__(self, id: 'str', name: 'str', content_sha256: 'str', content_type: 'str', chunk_count: 'int', embedding_model: 'str') -> None
+        field index_version: str
+        def __init__(self, id: 'str', name: 'str', content_sha256: 'str', content_type: 'str', chunk_count: 'int', embedding_model: 'str', index_version: 'str' = '') -> None
 Embedder: class Embedder(Protocol)
         def __init__(self, *args, **kwargs)
         def embed_documents(self, texts: 'Sequence[str]') -> 'list[list[float]]'
@@ -623,7 +624,8 @@ DocumentRecord: class DocumentRecord()
         field content_type: str
         field chunk_count: int
         field embedding_model: str
-        def __init__(self, id: 'str', name: 'str', content_sha256: 'str', content_type: 'str', chunk_count: 'int', embedding_model: 'str') -> None
+        field index_version: str
+        def __init__(self, id: 'str', name: 'str', content_sha256: 'str', content_type: 'str', chunk_count: 'int', embedding_model: 'str', index_version: 'str' = '') -> None
 Embedder: class Embedder(Protocol)
         def __init__(self, *args, **kwargs)
         def embed_documents(self, texts: 'Sequence[str]') -> 'list[list[float]]'

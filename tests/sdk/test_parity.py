@@ -107,7 +107,7 @@ async def test_readiness_reports_instead_of_raising(client: AsyncClient, engine)
     store._unavailable = True
     report = await client.ready()
     assert report.ready is False
-    assert report.checks == {"vector_store": "unavailable"}
+    assert report.checks == {"vector_store": "unavailable", "index": "unavailable"}
 
 
 async def test_dependency_failure_is_the_same_typed_error(client: AsyncClient, engine) -> None:  # type: ignore[no-untyped-def]

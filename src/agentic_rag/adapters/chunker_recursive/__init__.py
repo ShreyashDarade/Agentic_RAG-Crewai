@@ -17,13 +17,22 @@ _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 class RecursiveChunker:
     """Chunks never span pages. Defaults are unmeasured (framework section 11)."""
 
-    version = "recursive-1"
+    algorithm = "recursive-1"
 
     def __init__(self, *, max_chars: int = 1500, overlap_chars: int = 200) -> None:
         if max_chars < 100 or not 0 <= overlap_chars < max_chars // 2:
             raise ConfigurationError("chunk size must be >= 100 and overlap < half of it")
         self._max = max_chars
         self._overlap = overlap_chars
+
+    @property
+    def version(self) -> str:
+        # Settings are part of the version, so a re-upload after changing them is re-indexed, not echoed.
+        return f"{self.algorithm}/{self._max}/{self._overlap}"
+
+    @property
+    def max_chars(self) -> int:
+        return self._max
 
     def chunk(self, doc: ParsedDocument, *, document_id: str, document_name: str) -> list[Chunk]:
         pages: list[tuple[int | None, str]]
@@ -59,13 +68,21 @@ class RecursiveChunker:
         return [u for u in units if u]
 
     def _hard_split(self, text: str) -> list[str]:
+        # Index-based: re-slicing the remainder on every cut copied the whole text each time (quadratic).
         out: list[str] = []
-        while len(text) > self._max:
-            cut = text.rfind(" ", 0, self._max)
-            cut = cut if cut > 0 else self._max
-            out.append(text[:cut].strip())
-            text = text[cut:].strip()
-        out.append(text)
+        start, end = 0, len(text)
+        while end - start > self._max:
+            cut = text.rfind(" ", start, start + self._max)
+            cut = cut if cut > start else start + self._max
+            piece = text[start:cut].strip()
+            if piece:
+                out.append(piece)
+            start = cut
+            while start < end and text[start].isspace():
+                start += 1
+        rest = text[start:end].strip()
+        if rest:
+            out.append(rest)
         return out
 
     def _split(self, text: str) -> list[str]:

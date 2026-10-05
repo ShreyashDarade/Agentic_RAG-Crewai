@@ -39,13 +39,13 @@ def test_a_dead_dependency_is_reported_identically_by_readyz_metrics_and_logs(ca
         assert 'agentic_rag_dependency_up{dependency="vector_store"} 0.0' in scraped
         r = client.get("/readyz", headers={"X-Request-ID": "outage-0001-abcd"})
         assert r.status_code == 503
-        assert r.json() == {"ready": False, "checks": {"vector_store": "unavailable"}}
+        assert r.json() == {"ready": False, "checks": {"vector_store": "unavailable", "index": "unavailable"}}
         down = client.get("/metrics", headers=H).text
         assert 'agentic_rag_dependency_up{dependency="vector_store"} 0.0' in down
         assert _metric(down, "agentic_rag_ready") == 0.0
         warnings = [rec for rec in caplog.records if getattr(rec, "event", "") == "not_ready"]
         assert warnings
-        assert warnings[-1].failing == ["vector_store"]  # type: ignore[attr-defined]
+        assert warnings[-1].failing == ["index", "vector_store"]  # type: ignore[attr-defined]
         access = [rec for rec in caplog.records if getattr(rec, "request_id", "") == "outage-0001-abcd"]
         assert access
         assert access[-1].status == 503  # type: ignore[attr-defined]

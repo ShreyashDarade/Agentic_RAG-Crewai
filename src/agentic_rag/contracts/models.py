@@ -46,7 +46,7 @@ class QueryRequest(_Request):
 
     question: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
     top_k: int | None = Field(default=None, ge=1, le=MAX_TOP_K)
-    document_ids: list[Identifier] | None = Field(default=None, max_length=MAX_IDS_PER_FILTER)
+    document_ids: list[Identifier] | None = Field(default=None, min_length=1, max_length=MAX_IDS_PER_FILTER)
 
 
 class SearchRequest(_Request):
@@ -54,7 +54,7 @@ class SearchRequest(_Request):
 
     query: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
     top_k: int | None = Field(default=None, ge=1, le=MAX_TOP_K)
-    document_ids: list[Identifier] | None = Field(default=None, max_length=MAX_IDS_PER_FILTER)
+    document_ids: list[Identifier] | None = Field(default=None, min_length=1, max_length=MAX_IDS_PER_FILTER)
 
 
 class Source(_Response):

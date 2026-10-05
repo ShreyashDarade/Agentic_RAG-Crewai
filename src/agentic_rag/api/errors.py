@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from agentic_rag.api.middleware import REQUEST_ID_SCOPE_KEY
+from agentic_rag.api.middleware import BODY_EXCEEDED_SCOPE_KEY, REQUEST_ID_SCOPE_KEY
 from agentic_rag.errors import MethodNotAllowed, NotFound, RagError, ValidationFailed
 
 __all__ = ["install_error_handlers"]
@@ -15,7 +15,7 @@ __all__ = ["install_error_handlers"]
 
 def problem_response(error: RagError, request: Request) -> JSONResponse:
     metrics = getattr(request.app.state, "metrics", None)
-    if metrics is not None:
+    if metrics is not None and not request.scope.get(BODY_EXCEEDED_SCOPE_KEY):
         metrics.error(error.code)
     error.request_id = error.request_id or request.scope.get(REQUEST_ID_SCOPE_KEY)
     headers = {"WWW-Authenticate": "Bearer"} if error.http_status == 401 else {}

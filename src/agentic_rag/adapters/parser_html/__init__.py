@@ -12,6 +12,7 @@ __all__ = ["HtmlParser"]
 
 class HtmlParser:
     extensions = frozenset({".html", ".htm"})
+    version = "1"
 
     def parse(self, data: bytes, *, name: str) -> ParsedDocument:
         if b"\x00" in data:

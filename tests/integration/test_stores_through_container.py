@@ -88,7 +88,7 @@ async def test_restart_keeps_the_data_and_rebuilds_the_lexical_index(stack) -> N
     again = await build(env)
     try:
         await ready(again)
-        assert (await again.service.ready()).checks == {"vector_store": "ok", "lexical_index": "ok"}
+        assert (await again.service.ready()).checks == {"vector_store": "ok", "lexical_index": "ok", "index": "ok"}
         assert (await again.service.search(SearchRequest(query="tropical plants", top_k=2))).hits
     finally:
         await again.aclose()

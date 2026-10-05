@@ -169,4 +169,4 @@ async def test_readiness_reports_each_dependency_without_raw_text() -> None:
     assert (await service.ready()).ready
     store._unavailable = True
     state = await service.ready()
-    assert not state.ready and state.checks == {"vector_store": "unavailable"}
+    assert not state.ready and state.checks == {"vector_store": "unavailable", "index": "unavailable"}

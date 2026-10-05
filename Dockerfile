@@ -15,5 +15,5 @@ ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/readyz').status==200 else 1)"
-CMD ["uvicorn", "--factory", "agentic_rag.server:create", "--host", "0.0.0.0", "--port", "8000", "--timeout-graceful-shutdown", "30"]
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').status==200 else 1)"
+CMD ["agentic-rag", "serve", "--host", "0.0.0.0", "--port", "8000"]

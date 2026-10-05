@@ -119,12 +119,13 @@ name = "G1 layers: higher layers may import lower ones, never the reverse (exhau
 type = "layers"
 containers = ["agentic_rag"]
 layers = [
-    "server | embedded | cli",
+    "cli",
+    "server | embedded",
     "container",
     "config | api | client",
     "application | adapters | testing | sdk | models | extend | evaluation",
     "ports | contracts | registry",
-    "errors | _compat",
+    "errors | _compat | blocking",
     "_version",
 ]
 exhaustive = true
@@ -231,7 +232,7 @@ ignore_imports = [
     "agentic_rag.api.** -> fastapi",
     "agentic_rag.api.** -> starlette",
     "agentic_rag.server -> fastapi",
-    "agentic_rag.cli -> uvicorn",
+    "agentic_rag.server -> uvicorn",
 ]
 
 [[tool.importlinter.contracts]]

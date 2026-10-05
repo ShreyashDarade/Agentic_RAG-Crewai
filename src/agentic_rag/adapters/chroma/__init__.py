@@ -225,6 +225,7 @@ def _to_record(meta: dict[str, Any]) -> DocumentRecord:
         content_sha256=str(meta.get("m_content_sha256", "")),
         content_type=str(meta.get("m_content_type", "")),
         chunk_count=int(meta.get("m_chunk_count", 0)),
+        index_version=str(meta.get("m_index_version", "")),
         embedding_model=str(meta.get("embedding_model", "")),
     )
 

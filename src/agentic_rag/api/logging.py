@@ -12,7 +12,7 @@ from agentic_rag.api.middleware import request_id_var
 
 __all__ = ["JsonFormatter", "configure_logging"]
 
-_EXTRA_FIELDS = ("event", "method", "route", "status", "duration_ms", "code", "dependency", "failing")
+_EXTRA_FIELDS = ("event", "seconds", "method", "route", "status", "duration_ms", "code", "dependency", "failing")
 
 
 class JsonFormatter(logging.Formatter):

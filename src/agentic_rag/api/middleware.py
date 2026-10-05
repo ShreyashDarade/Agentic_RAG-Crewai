@@ -13,15 +13,20 @@ import uuid
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from agentic_rag.api.auth import bearer_token, is_authorized
+from agentic_rag.api.config import ApiConfig
 from agentic_rag.api.metrics import Metrics
-from agentic_rag.errors import Overloaded, PayloadTooLarge, RagError
+from agentic_rag.errors import AuthenticationFailed, Overloaded, PayloadTooLarge, RagError
 
 __all__ = [
+    "BODY_EXCEEDED_SCOPE_KEY",
     "REQUEST_ID_SCOPE_KEY",
+    "AuthMiddleware",
     "BodyLimitMiddleware",
     "LoadSheddingMiddleware",
     "RequestContextMiddleware",
     "request_id_var",
+    "route_path",
 ]
 
 logger = logging.getLogger("agentic_rag.api")
@@ -29,6 +34,7 @@ logger = logging.getLogger("agentic_rag.api")
 access_logger = logging.getLogger("agentic_rag.access")
 
 REQUEST_ID_SCOPE_KEY = "agentic_rag.request_id"
+BODY_EXCEEDED_SCOPE_KEY = "agentic_rag.body_exceeded"
 request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
 _VALID_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
@@ -37,11 +43,26 @@ def _problem_bytes(error: RagError) -> bytes:
     return json.dumps(error.to_problem()).encode()
 
 
-async def _send_problem(send: Send, error: RagError) -> None:
+def route_path(scope: Scope) -> str:
+    """The path below the mount point. uvicorn's ``--root-path`` puts the prefix into ``scope["path"]``; the ASGI
+    specification says it should not. Accept both so a prefix can never switch a protection off."""
+    path: str = scope["path"]
+    root: str = scope.get("root_path", "")
+    if root and (path == root or path.startswith(root + "/")):
+        path = path[len(root) :]
+    return path or "/"
+
+
+def _is_protected(path: str) -> bool:
+    return path == "/v1" or path.startswith("/v1/") or path == "/metrics"
+
+
+async def _send_problem(send: Send, error: RagError, *, extra_headers: list[tuple[bytes, bytes]] | None = None) -> None:
     body = _problem_bytes(error)
     headers = [(b"content-type", b"application/problem+json"), (b"content-length", str(len(body)).encode())]
     if error.retry_after is not None:
         headers.append((b"retry-after", str(max(1, round(error.retry_after))).encode()))
+    headers.extend(extra_headers or [])
     await send({"type": "http.response.start", "status": error.http_status, "headers": headers})
     await send({"type": "http.response.body", "body": body})
 
@@ -102,6 +123,33 @@ class RequestContextMiddleware:
             request_id_var.reset(token)
 
 
+class AuthMiddleware:
+    """Checks the API key before anything reads the request body or counts against the in-flight bound.
+
+    Without this, FastAPI parses (and spools) a body before the route-level dependency runs, so an anonymous caller
+    could make the server read 25 MB and could occupy every load-shedding slot. The route dependency stays as a second
+    check. CORS preflights carry no credentials by design, so ``OPTIONS`` is left to the CORS layer.
+    """
+
+    def __init__(self, app: ASGIApp, *, config: ApiConfig, metrics: Metrics | None = None) -> None:
+        self.app = app
+        self.config = config
+        self.metrics = metrics
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["method"] == "OPTIONS" or not _is_protected(route_path(scope)):
+            await self.app(scope, receive, send)
+            return
+        authorization = MutableHeaders(scope=scope).get("authorization")
+        if not is_authorized(self.config, bearer_token(authorization)):
+            if self.metrics:
+                self.metrics.error(AuthenticationFailed.code)
+            error = AuthenticationFailed(request_id=scope.get(REQUEST_ID_SCOPE_KEY))
+            await _send_problem(send, error, extra_headers=[(b"www-authenticate", b"Bearer")])
+            return
+        await self.app(scope, receive, send)
+
+
 class LoadSheddingMiddleware:
     """Bounded in-flight work on ``/v1``: beyond the bound, answer 503 + Retry-After immediately (ADR-0009)."""
 
@@ -112,7 +160,8 @@ class LoadSheddingMiddleware:
         self._inflight = 0
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not scope["path"].startswith("/v1/"):
+        path = route_path(scope) if scope["type"] == "http" else ""
+        if scope["type"] != "http" or not (path == "/v1" or path.startswith("/v1/")):
             await self.app(scope, receive, send)
             return
         if self._inflight >= self.max_inflight:
@@ -133,9 +182,10 @@ class LoadSheddingMiddleware:
 class BodyLimitMiddleware:
     """Rejects request bodies larger than ``max_bytes`` before they are spooled to disk."""
 
-    def __init__(self, app: ASGIApp, *, max_bytes: int) -> None:
+    def __init__(self, app: ASGIApp, *, max_bytes: int, metrics: Metrics | None = None) -> None:
         self.app = app
         self.max_bytes = max_bytes
+        self.metrics = metrics
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -146,6 +196,8 @@ class BodyLimitMiddleware:
         declared = MutableHeaders(scope=scope).get("content-length")
         too_large = PayloadTooLarge(details={"max_bytes": self.max_bytes}, request_id=scope.get(REQUEST_ID_SCOPE_KEY))
         if declared is not None and declared.isdigit() and int(declared) > limit:
+            if self.metrics:
+                self.metrics.error(PayloadTooLarge.code)
             await _send_problem(send, too_large)
             return
         seen = 0
@@ -161,6 +213,9 @@ class BodyLimitMiddleware:
                 seen += len(message.get("body", b""))
                 if seen > limit:
                     exceeded = True
+                    scope[BODY_EXCEEDED_SCOPE_KEY] = True  # the framework's own 422 for the cut-off body is not counted
+                    if self.metrics:
+                        self.metrics.error(PayloadTooLarge.code)
                     return {"type": "http.disconnect"}
             return message
 

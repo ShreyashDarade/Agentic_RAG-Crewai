@@ -61,6 +61,7 @@ class DocumentRecord:
     content_type: str
     chunk_count: int
     embedding_model: str
+    index_version: str = ""
 
 
 @dataclass(frozen=True, slots=True)

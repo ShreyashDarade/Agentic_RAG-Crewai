@@ -144,6 +144,11 @@ class DocumentParser(Protocol):
         """Lower-case, with the dot, for example ``{".pdf"}``."""
         ...
 
+    @property
+    def version(self) -> str:
+        """Changes whenever the extracted text for the same bytes would change; re-uploads are then re-indexed."""
+        ...
+
     def parse(self, data: bytes, *, name: str) -> ParsedDocument:
         """Raises ``DocumentParseFailed`` (corrupt/unreadable) or ``DocumentEmpty`` (no text)."""
         ...
@@ -152,7 +157,13 @@ class DocumentParser(Protocol):
 class Chunker(Protocol):
     @property
     def version(self) -> str:
-        """Part of every chunk id: changing chunking behaviour must change this."""
+        """Part of every chunk id: changing chunking behaviour (including its settings) must change this."""
+        ...
+
+    @property
+    def max_chars(self) -> int:
+        """No chunk's text is longer than this. The service uses it to refuse a document that cannot fit the
+        per-document chunk limit before spending time on chunking it."""
         ...
 
     def chunk(self, doc: ParsedDocument, *, document_id: str, document_name: str) -> list[Chunk]: ...

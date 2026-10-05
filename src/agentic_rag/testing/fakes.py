@@ -149,6 +149,7 @@ def _record(chunk: Chunk, model: str) -> DocumentRecord:
         content_sha256=str(meta.get("content_sha256", "")),
         content_type=str(meta.get("content_type", "")),
         chunk_count=int(meta.get("chunk_count", 0)),
+        index_version=str(meta.get("index_version", "")),
         embedding_model=model,
     )
 

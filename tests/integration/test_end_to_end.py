@@ -104,7 +104,7 @@ async def test_restart_rebuilds_the_lexical_index_from_the_store(milvus_uri: str
     second = await _build(milvus_uri, collection_name)
     try:
         await _until_ready(second)
-        assert (await second.service.ready()).checks == {"vector_store": "ok", "lexical_index": "ok"}
+        assert (await second.service.ready()).checks == {"vector_store": "ok", "lexical_index": "ok", "index": "ok"}
         assert (await second.service.search(SearchRequest(query="tropical plants", top_k=2))).hits
     finally:
         await second.aclose()
