@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 from typing import Any
 
 from crewai.llms.base_llm import BaseLLM
 from pydantic import PrivateAttr
 
-from agentic_rag.errors import ModelFailed, RagError
+from agentic_rag.errors import DeadlineExceeded, ModelFailed, RagError
 from agentic_rag.ports import ChatMessage, ChatModel
 
 __all__ = ["PortLLM"]
@@ -34,6 +35,7 @@ class PortLLM(BaseLLM):
     chat: Any
     loop: Any
     max_tokens: int = 700
+    call_timeout: float = 60.0  # the crew's thread never waits on the application loop for longer than this
     _error: RagError | None = PrivateAttr(default=None)
 
     def cancel(self, error: RagError) -> None:
@@ -69,7 +71,11 @@ class PortLLM(BaseLLM):
         chat: ChatModel = self.chat
         future = asyncio.run_coroutine_threadsafe(chat.complete(converted, max_tokens=self.max_tokens), self.loop)
         try:
-            completion = future.result()
+            completion = future.result(timeout=self.call_timeout)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            self._error = DeadlineExceeded("a provider call exceeded its time limit")
+            raise self._error from None
         except RagError as exc:
             self._error = exc
             raise

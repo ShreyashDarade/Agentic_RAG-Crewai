@@ -90,7 +90,7 @@ class RagError(Exception):
         self.detail = detail
         self.details: dict[str, Any] = dict(details or {})
         self.request_id = request_id
-        self.retry_after = retry_after
+        self.retry_after = _seconds_of(retry_after)  # NaN, infinity and negatives would break every serialiser
 
     def to_problem(self) -> dict[str, Any]:
         """RFC 9457 body with the extension members ``code`` and ``request_id``."""

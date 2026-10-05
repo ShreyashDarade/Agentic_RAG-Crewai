@@ -66,6 +66,17 @@ class BuildContext:
         return self._shared[key]
 
 
+def _sync_closer(close: Callable[[], None]) -> Closer:
+    async def closer() -> None:
+        close()
+
+    return closer
+
+
+def _crewai_data_dir() -> ConfigurationError:
+    return ConfigurationError("crewai could not create its data directory; point XDG_DATA_HOME at a writable path")
+
+
 def _needs(extra: str, module: str) -> ConfigurationError:
     return ConfigurationError(f"{module!r} is not installed; install agentic-rag[{extra}]")
 
@@ -167,10 +178,20 @@ def _crewai_chat(s: Settings, ctx: BuildContext) -> Any:
         from agentic_rag.adapters.crewai import CrewAIChatModel
     except ImportError as exc:
         raise _needs("crewai", "crewai") from exc
+    except OSError as exc:  # importing crewai creates a data directory under XDG_DATA_HOME
+        raise _crewai_data_dir() from exc
     if not s.crewai_llm_model:
         raise ConfigurationError("AGENTIC_RAG_CREWAI_LLM_MODEL is required for the crewai chat model")
     key = s.crewai_llm_api_key.get_secret_value() if s.crewai_llm_api_key else None
-    return CrewAIChatModel(s.crewai_llm_model, api_key=key, base_url=s.crewai_llm_base_url)
+    chat = CrewAIChatModel(
+        s.crewai_llm_model,
+        api_key=key,
+        base_url=s.crewai_llm_base_url,
+        timeout_seconds=s.crewai_provider_timeout_seconds,
+        workers=max(8, s.crewai_max_concurrent),
+    )
+    ctx.closers.append(_sync_closer(chat.close))
+    return chat
 
 
 def _crewai_embedder(s: Settings, ctx: BuildContext) -> Any:
@@ -178,6 +199,8 @@ def _crewai_embedder(s: Settings, ctx: BuildContext) -> Any:
         from agentic_rag.adapters.crewai import CrewAIEmbedder
     except ImportError as exc:
         raise _needs("crewai", "crewai") from exc
+    except OSError as exc:  # importing crewai creates a data directory under XDG_DATA_HOME
+        raise _crewai_data_dir() from exc
     if not s.crewai_embedder_provider:
         raise ConfigurationError("AGENTIC_RAG_CREWAI_EMBEDDER_PROVIDER is required for the crewai embedder")
     try:
@@ -193,7 +216,11 @@ def _crewai_embedder(s: Settings, ctx: BuildContext) -> Any:
         config["api_base"] = s.crewai_embedder_base_url
     if s.crewai_embedder_api_key:
         config["api_key"] = s.crewai_embedder_api_key.get_secret_value()
-    return CrewAIEmbedder(s.crewai_embedder_provider, config, dimension=s.embedding_dimension)
+    embedder = CrewAIEmbedder(
+        s.crewai_embedder_provider, config, dimension=s.embedding_dimension, workers=max(8, s.crewai_max_concurrent)
+    )
+    ctx.closers.append(_sync_closer(embedder.close))
+    return embedder
 
 
 def _crewai_pipeline(s: Settings, ctx: BuildContext) -> Any:
@@ -201,13 +228,17 @@ def _crewai_pipeline(s: Settings, ctx: BuildContext) -> Any:
         from agentic_rag.adapters.crewai import CrewPipeline
     except ImportError as exc:
         raise _needs("crewai", "crewai") from exc
-    return CrewPipeline(
+    except OSError as exc:  # importing crewai creates a data directory under XDG_DATA_HOME
+        raise _crewai_data_dir() from exc
+    pipeline = CrewPipeline(
         cast(ChatModel, ctx.built["chat_model"]),
         max_tokens=s.pipeline_max_tokens,
         max_iter=s.crewai_max_iter,
         max_seconds=s.crewai_max_seconds,
         max_concurrent=s.crewai_max_concurrent,
     )
+    ctx.closers.append(_sync_closer(pipeline.close))
+    return pipeline
 
 
 def _bm25(s: Settings, ctx: BuildContext) -> Any:

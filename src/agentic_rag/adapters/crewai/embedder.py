@@ -8,14 +8,14 @@ import os
 
 os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
 
-import asyncio
 from collections.abc import Callable, Sequence
 from typing import Any
 
 from crewai.rag.embeddings.factory import build_embedder
 
 from agentic_rag.adapters.crewai._errors import map_provider_error
-from agentic_rag.errors import ConfigurationError, EmbeddingFailed
+from agentic_rag.blocking import PROVIDER_BACKLOG, PROVIDER_WORKERS, BlockingPool
+from agentic_rag.errors import ConfigurationError, EmbeddingFailed, Overloaded, RagError
 
 __all__ = ["CrewAIEmbedder"]
 
@@ -28,6 +28,7 @@ class CrewAIEmbedder:
         *,
         dimension: int,
         factory: Callable[[dict[str, Any]], Any] = build_embedder,
+        workers: int = PROVIDER_WORKERS,
     ) -> None:
         try:
             self._embed = factory({"provider": provider, "config": config})
@@ -36,6 +37,10 @@ class CrewAIEmbedder:
         self._provider = provider
         self._model = str(config.get("model_name") or config.get("model") or "default")
         self._dimension = dimension
+        self._pool = BlockingPool("crewai-embed", workers=workers, backlog=PROVIDER_BACKLOG, saturated=Overloaded)
+
+    def close(self) -> None:
+        self._pool.close()
 
     @property
     def model_id(self) -> str:
@@ -49,7 +54,9 @@ class CrewAIEmbedder:
         if not texts:
             return []
         try:
-            raw = await asyncio.to_thread(self._embed, list(texts))
+            raw = await self._pool.run(self._embed, list(texts))
+        except RagError:
+            raise
         except Exception as exc:
             raise map_provider_error(exc, EmbeddingFailed) from exc
         vectors = [[float(x) for x in v] for v in raw]

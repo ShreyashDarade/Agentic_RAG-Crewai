@@ -18,7 +18,6 @@ import pytest
 from agentic_rag import AsyncClient, Client
 from agentic_rag.errors import (
     ClientTimeout,
-    ConnectionFailed,
     DocumentNotFound,
     RagError,
     RagStatusError,

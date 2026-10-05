@@ -50,6 +50,7 @@ Settings: class Settings(BaseSettings)
         field crewai_max_concurrent: <class 'int'>
         field crewai_max_iter: <class 'int'>
         field crewai_max_seconds: <class 'int'>
+        field crewai_provider_timeout_seconds: <class 'float'>
         field default_top_k: <class 'int'>
         field embed_batch_size: <class 'int'>
         field embedder: <class 'str'>

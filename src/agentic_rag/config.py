@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     crewai_max_iter: int = Field(default=3, ge=1, le=10)
     crewai_max_seconds: int = Field(default=40, ge=1, le=300)
     crewai_max_concurrent: int = Field(default=4, ge=1, le=64)
+    crewai_provider_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
 
     # -- OpenAI ----------------------------------------------------------------------------------
     openai_api_key: SecretStr | None = None
@@ -234,6 +235,11 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         ) from None
     if settings.chunk_overlap_chars >= settings.chunk_max_chars // 2:
         raise ConfigurationError("AGENTIC_RAG_CHUNK_OVERLAP_CHARS must be less than half of the chunk size")
+    if settings.crewai_max_seconds >= settings.request_deadline_seconds:
+        raise ConfigurationError(
+            "AGENTIC_RAG_CREWAI_MAX_SECONDS must be below AGENTIC_RAG_REQUEST_DEADLINE_SECONDS: "
+            "a crew that outlives the request deadline keeps calling the provider after the client was answered"
+        )
     if settings.allow_unauthenticated and settings.api_keys:
         raise ConfigurationError(
             "AGENTIC_RAG_ALLOW_UNAUTHENTICATED and AGENTIC_RAG_API_KEYS are both set; "

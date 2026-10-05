@@ -21,11 +21,14 @@ from collections.abc import Callable
 from concurrent.futures import Future
 from typing import Any, TypeVar
 
-__all__ = ["STORE_BACKLOG", "STORE_WORKERS", "BlockingPool"]
+__all__ = ["PROVIDER_BACKLOG", "PROVIDER_WORKERS", "STORE_BACKLOG", "STORE_WORKERS", "BlockingPool"]
 
 #: Threads and queue room each vector store gets. A store that hangs can strand at most ``STORE_WORKERS`` threads.
 STORE_WORKERS = 8
 STORE_BACKLOG = 64
+#: The same for a model or embedding provider reached through a blocking library.
+PROVIDER_WORKERS = 8
+PROVIDER_BACKLOG = 128
 
 T = TypeVar("T")
 
