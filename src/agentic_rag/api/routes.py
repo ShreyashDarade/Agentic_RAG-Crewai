@@ -106,7 +106,7 @@ async def readyz(request: Request, service: ServiceDep) -> Response:
     return JSONResponse(report.model_dump(), status_code=200 if report.ready else 503)
 
 
-@ops_router.get("/metrics", operation_id="metrics", tags=["operations"], include_in_schema=False)
+@ops_router.get("/metrics", operation_id="metrics", tags=["operations"], response_class=Response)
 async def metrics(request: Request, service: ServiceDep) -> Response:
     """Prometheus exposition. Readiness is re-evaluated first so the gauges match what /readyz says."""
     await check_readiness(request, service)

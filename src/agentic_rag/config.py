@@ -58,6 +58,29 @@ class Settings(BaseSettings):
     search_ef: int = Field(default=64, ge=1, le=4096)
     consistency_level: Literal["Strong", "Session", "Bounded", "Eventually"] = "Strong"
 
+    # -- other vector stores (components: vector_store = chroma | qdrant) -----------------------------------------
+    chroma_path: str | None = None
+    chroma_url: str | None = None
+    chroma_collection: str = Field(default="documents", pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,510}[A-Za-z0-9]$")
+    qdrant_location: str | None = None  # ":memory:", a directory, or http(s)://host:port
+    qdrant_api_key: SecretStr | None = None
+    qdrant_collection: str = Field(default="documents", pattern=r"^[A-Za-z0-9_-]{1,255}$")
+
+    # -- CrewAI providers (components: chat_model/embedder = crewai, answer_pipeline = crewai) ----------------------
+    crewai_llm_model: str | None = (
+        None  # provider-prefixed, e.g. "openai/gpt-4o-mini", "anthropic/claude-...", "ollama/llama3"
+    )
+    crewai_llm_api_key: SecretStr | None = None
+    crewai_llm_base_url: str | None = None
+    crewai_embedder_provider: str | None = None  # a CrewAI embedding provider name, e.g. "openai", "cohere", "ollama"
+    crewai_embedder_model: str | None = None
+    crewai_embedder_api_key: SecretStr | None = None
+    crewai_embedder_base_url: str | None = None
+    crewai_embedder_options: str = "{}"  # extra provider options as JSON (non-secret)
+    crewai_max_iter: int = Field(default=3, ge=1, le=10)
+    crewai_max_seconds: int = Field(default=40, ge=1, le=300)
+    crewai_max_concurrent: int = Field(default=4, ge=1, le=64)
+
     # -- OpenAI ----------------------------------------------------------------------------------
     openai_api_key: SecretStr | None = None
     openai_base_url: str | None = None

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from agentic_rag.adapters.chunker_recursive import RecursiveChunker
 from agentic_rag.adapters.lexical_bm25 import Bm25Index
 from agentic_rag.adapters.parser_text import TextParser
@@ -149,3 +151,26 @@ class TestFakeReranker(RerankerContract):
         from agentic_rag.testing import FakeReranker
 
         return FakeReranker()
+
+
+class _ReActFormat:
+    """Test double around a chat model: wraps each scripted reply the way a ReAct agent expects its final answer."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    async def complete(
+        self, messages: Any, *, max_tokens: int, temperature: float = 0.0, json_mode: bool = False
+    ) -> Any:
+        from agentic_rag.ports import Completion
+
+        out = await self._inner.complete(messages, max_tokens=max_tokens)
+        return Completion(text="Thought: I now know the final answer\nFinal Answer: " + out.text)
+
+
+class TestCrewPipeline(AnswerPipelineContract):
+    def create(self, chat: Any) -> Any:
+        pytest.importorskip("crewai")
+        from agentic_rag.adapters.crewai import CrewPipeline
+
+        return CrewPipeline(_ReActFormat(chat), max_seconds=60)

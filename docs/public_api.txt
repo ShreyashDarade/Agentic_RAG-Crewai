@@ -31,11 +31,25 @@ Settings: class Settings(BaseSettings)
         field api_keys: list[pydantic.types.SecretStr]
         field candidate_pool: <class 'int'>
         field chat_model: <class 'str'>
+        field chroma_collection: <class 'str'>
+        field chroma_path: str | None
+        field chroma_url: str | None
         field chunk_max_chars: <class 'int'>
         field chunk_overlap_chars: <class 'int'>
         field chunker: <class 'str'>
         field consistency_level: typing.Literal['Strong', 'Session', 'Bounded', 'Eventually']
         field cors_allow_origins: list[str]
+        field crewai_embedder_api_key: pydantic.types.SecretStr | None
+        field crewai_embedder_base_url: str | None
+        field crewai_embedder_model: str | None
+        field crewai_embedder_options: <class 'str'>
+        field crewai_embedder_provider: str | None
+        field crewai_llm_api_key: pydantic.types.SecretStr | None
+        field crewai_llm_base_url: str | None
+        field crewai_llm_model: str | None
+        field crewai_max_concurrent: <class 'int'>
+        field crewai_max_iter: <class 'int'>
+        field crewai_max_seconds: <class 'int'>
         field default_top_k: <class 'int'>
         field embed_batch_size: <class 'int'>
         field embedder: <class 'str'>
@@ -66,6 +80,9 @@ Settings: class Settings(BaseSettings)
         field pdf_max_pages: <class 'int'>
         field pipeline_max_tokens: <class 'int'>
         field plugins: list[str]
+        field qdrant_api_key: pydantic.types.SecretStr | None
+        field qdrant_collection: <class 'str'>
+        field qdrant_location: str | None
         field request_deadline_seconds: <class 'float'>
         field reranker: str | None
         field rrf_k: <class 'int'>

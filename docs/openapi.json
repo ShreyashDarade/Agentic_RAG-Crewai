@@ -515,6 +515,26 @@
         ]
       }
     },
+    "/metrics": {
+      "get": {
+        "description": "Prometheus exposition. Readiness is re-evaluated first so the gauges match what /readyz says.",
+        "operationId": "metrics",
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Metrics",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
     "/readyz": {
       "get": {
         "description": "Readiness: every dependency is reachable and the server is not draining. Fails honestly.",

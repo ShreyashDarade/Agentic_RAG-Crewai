@@ -491,6 +491,86 @@ CASES: list[Case] = [
         PYTEST + ["tests/api/test_operability.py"],
         "FAILED",
     ),
+    Case(
+        "M38",
+        "Evaluation metrics",
+        "the nDCG discount is off by one rank",
+        [
+            E(
+                S + "evaluation/metrics.py",
+                "dcg = sum(g / math.log2(i + 2) for i, g in enumerate(gains))",
+                "dcg = sum(g / math.log2(i + 1.5) for i, g in enumerate(gains))",
+            )
+        ],
+        PYTEST + ["tests/unit/test_evaluation.py"],
+        "FAILED",
+    ),
+    Case(
+        "M39",
+        "G14 defaults need evidence",
+        "a quality default changes without updating docs/defaults.toml",
+        [E(S + "config.py", "default_top_k: int = Field(default=8,", "default_top_k: int = Field(default=9,")],
+        PYTEST + ["tests/docs/test_docs_match_code.py"],
+        "FAILED",
+    ),
+    Case(
+        "M40",
+        "G15 docs match code",
+        "a document names an environment variable that does not exist",
+        [E("docs/operations.md", None, "\nSet AGENTIC_RAG_NONEXISTENT_KNOB to fix it.\n")],
+        PYTEST + ["tests/docs/test_docs_match_code.py"],
+        "FAILED",
+    ),
+    Case(
+        "M41",
+        "Retries at one layer (crew)",
+        "the crew LLM stops failing fast after the first provider error",
+        [
+            E(
+                S + "adapters/crewai/_llm.py",
+                "        if self._error is not None:\n            raise self._error\n        raw =",
+                "        raw =",
+            )
+        ],
+        PYTEST + ["tests/unit/test_crew_pipeline.py"],
+        "FAILED",
+    ),
+    Case(
+        "M42",
+        "Retries at one layer (CrewAI chat)",
+        "the CrewAI chat adapter keeps the provider SDK's default retries",
+        [E(S + "adapters/crewai/chat.py", ', "max_retries": 1}', "}")],
+        PYTEST + ["tests/conformance/test_providers_over_http.py", "-k", "at_most_twice"],
+        "FAILED",
+    ),
+    Case(
+        "M43",
+        "Security: Chroma filter",
+        "the Chroma adapter ignores the document filter",
+        [
+            E(
+                S + "adapters/chroma/__init__.py",
+                '    return {"document_id": {"$in": list(flt.document_ids)}}',
+                "    return None",
+            )
+        ],
+        PYTEST + ["tests/conformance/test_stores.py", "-k", "Chroma and filter"],
+        "FAILED",
+    ),
+    Case(
+        "M44",
+        "Security: Qdrant filter",
+        "the Qdrant adapter ignores the document filter",
+        [
+            E(
+                S + "adapters/qdrant/__init__.py",
+                '    return models.Filter(must=[_match("document_id", list(flt.document_ids))])',
+                "    return None",
+            )
+        ],
+        PYTEST + ["tests/conformance/test_stores.py", "-k", "Qdrant and filter"],
+        "FAILED",
+    ),
 ]
 
 

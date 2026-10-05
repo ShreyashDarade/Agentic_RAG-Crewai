@@ -14,6 +14,9 @@ dependencies = [
     "pydantic>=2.7,<3",
 ]
 
+[project.scripts]
+agentic-rag = "agentic_rag.cli:main"
+
 [project.optional-dependencies]
 engine = [
     "pydantic-settings>=2.4,<3",
@@ -36,10 +39,9 @@ server = [
     "python-multipart>=0.0.9",
     "prometheus-client>=0.20",
 ]
-worker = ["agentic-rag[engine]"]
 crewai = ["agentic-rag[engine]", "crewai>=1.14,<2"]
-ocr = ["agentic-rag[engine]", "easyocr>=1.7", "opencv-python-headless>=4.8"]
-rerank = ["agentic-rag[engine]", "sentence-transformers>=3"]
+chroma = ["agentic-rag[engine]", "chromadb>=1.0"]
+qdrant = ["agentic-rag[engine]", "qdrant-client>=1.12"]
 
 [dependency-groups]
 dev = [
@@ -83,7 +85,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "BLE", "RUF", "SIM", "C4", "PT"]
 ignore = ["S101"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "B", "E501", "PT011", "PT012", "PT017", "PT018", "RUF059"]
+"tests/**" = ["S", "B", "E501", "PT011", "PT012", "PT017", "PT018", "RUF005", "RUF059"]
 "src/agentic_rag/testing/contracts.py" = ["PT018", "S"]
 "scripts/**" = ["E501", "RUF005", "RUF059", "S603", "S607", "S101"]
 
@@ -117,10 +119,10 @@ name = "G1 layers: higher layers may import lower ones, never the reverse (exhau
 type = "layers"
 containers = ["agentic_rag"]
 layers = [
-    "server | embedded",
+    "server | embedded | cli",
     "container",
     "config | api | client",
-    "application | adapters | testing | sdk | models | extend",
+    "application | adapters | testing | sdk | models | extend | evaluation",
     "ports | contracts | registry",
     "errors | _compat",
     "_version",
@@ -140,6 +142,9 @@ modules = [
     "agentic_rag.adapters.parser_pdf",
     "agentic_rag.adapters.parser_docx",
     "agentic_rag.adapters.pipeline_direct",
+    "agentic_rag.adapters.chroma",
+    "agentic_rag.adapters.qdrant",
+    "agentic_rag.adapters.crewai",
 ]
 
 [[tool.importlinter.contracts]]
@@ -226,6 +231,7 @@ ignore_imports = [
     "agentic_rag.api.** -> fastapi",
     "agentic_rag.api.** -> starlette",
     "agentic_rag.server -> fastapi",
+    "agentic_rag.cli -> uvicorn",
 ]
 
 [[tool.importlinter.contracts]]
@@ -235,6 +241,18 @@ source_modules = ["agentic_rag"]
 forbidden_modules = ["prometheus_client"]
 allow_indirect_imports = true
 ignore_imports = ["agentic_rag.api.metrics -> prometheus_client"]
+
+[[tool.importlinter.contracts]]
+name = "G2 CrewAI and the other vector stores are confined to their adapters"
+type = "forbidden"
+source_modules = ["agentic_rag"]
+forbidden_modules = ["crewai", "chromadb", "qdrant_client"]
+allow_indirect_imports = true
+ignore_imports = [
+    "agentic_rag.adapters.crewai.** -> crewai",
+    "agentic_rag.adapters.chroma -> chromadb",
+    "agentic_rag.adapters.qdrant -> qdrant_client",
+]
 
 [[tool.importlinter.contracts]]
 name = "G2 settings library is confined to config"

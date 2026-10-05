@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 from collections.abc import Awaitable, Callable
@@ -124,6 +125,79 @@ def _openai_chat(s: Settings, ctx: BuildContext) -> Any:
     return OpenAIChatModel(_openai_client(s, ctx), model=s.openai_chat_model)
 
 
+def _chroma(s: Settings, ctx: BuildContext) -> Any:
+    try:
+        from agentic_rag.adapters.chroma import ChromaSettings, ChromaStore
+    except ImportError as exc:
+        raise _needs("chroma", "chromadb") from exc
+    if (s.chroma_path is None) == (s.chroma_url is None):
+        raise ConfigurationError("set exactly one of AGENTIC_RAG_CHROMA_PATH and AGENTIC_RAG_CHROMA_URL")
+    store = ChromaStore(ChromaSettings(path=s.chroma_path, url=s.chroma_url, collection=s.chroma_collection))
+    ctx.closers.append(store.aclose)
+    return store
+
+
+def _qdrant(s: Settings, ctx: BuildContext) -> Any:
+    try:
+        from agentic_rag.adapters.qdrant import QdrantSettings, QdrantStore
+    except ImportError as exc:
+        raise _needs("qdrant", "qdrant-client") from exc
+    if not s.qdrant_location:
+        raise ConfigurationError("AGENTIC_RAG_QDRANT_LOCATION is required for the qdrant vector store")
+    key = s.qdrant_api_key.get_secret_value() if s.qdrant_api_key else None
+    store = QdrantStore(QdrantSettings(location=s.qdrant_location, api_key=key, collection=s.qdrant_collection))
+    ctx.closers.append(store.aclose)
+    return store
+
+
+def _crewai_chat(s: Settings, ctx: BuildContext) -> Any:
+    try:
+        from agentic_rag.adapters.crewai import CrewAIChatModel
+    except ImportError as exc:
+        raise _needs("crewai", "crewai") from exc
+    if not s.crewai_llm_model:
+        raise ConfigurationError("AGENTIC_RAG_CREWAI_LLM_MODEL is required for the crewai chat model")
+    key = s.crewai_llm_api_key.get_secret_value() if s.crewai_llm_api_key else None
+    return CrewAIChatModel(s.crewai_llm_model, api_key=key, base_url=s.crewai_llm_base_url)
+
+
+def _crewai_embedder(s: Settings, ctx: BuildContext) -> Any:
+    try:
+        from agentic_rag.adapters.crewai import CrewAIEmbedder
+    except ImportError as exc:
+        raise _needs("crewai", "crewai") from exc
+    if not s.crewai_embedder_provider:
+        raise ConfigurationError("AGENTIC_RAG_CREWAI_EMBEDDER_PROVIDER is required for the crewai embedder")
+    try:
+        options = json.loads(s.crewai_embedder_options)
+    except json.JSONDecodeError as exc:
+        raise ConfigurationError("AGENTIC_RAG_CREWAI_EMBEDDER_OPTIONS is not valid JSON") from exc
+    if not isinstance(options, dict):
+        raise ConfigurationError("AGENTIC_RAG_CREWAI_EMBEDDER_OPTIONS must be a JSON object")
+    config: dict[str, Any] = dict(options)
+    if s.crewai_embedder_model:
+        config["model_name"] = s.crewai_embedder_model
+    if s.crewai_embedder_base_url:
+        config["api_base"] = s.crewai_embedder_base_url
+    if s.crewai_embedder_api_key:
+        config["api_key"] = s.crewai_embedder_api_key.get_secret_value()
+    return CrewAIEmbedder(s.crewai_embedder_provider, config, dimension=s.embedding_dimension)
+
+
+def _crewai_pipeline(s: Settings, ctx: BuildContext) -> Any:
+    try:
+        from agentic_rag.adapters.crewai import CrewPipeline
+    except ImportError as exc:
+        raise _needs("crewai", "crewai") from exc
+    return CrewPipeline(
+        cast(ChatModel, ctx.built["chat_model"]),
+        max_tokens=s.pipeline_max_tokens,
+        max_iter=s.crewai_max_iter,
+        max_seconds=s.crewai_max_seconds,
+        max_concurrent=s.crewai_max_concurrent,
+    )
+
+
 def _bm25(s: Settings, ctx: BuildContext) -> Any:
     from agentic_rag.adapters.lexical_bm25 import Bm25Index
 
@@ -176,15 +250,20 @@ def default_registries() -> Registries:
     """Registries with every built-in component. Plug-ins add to (or replace) these."""
     regs = Registries()
     regs.vector_store.register("milvus", _milvus)
+    regs.vector_store.register("chroma", _chroma)
+    regs.vector_store.register("qdrant", _qdrant)
     regs.lexical_index.register("bm25", _bm25)
     regs.embedder.register("openai", _openai_embedder)
     regs.chat_model.register("openai", _openai_chat)
+    regs.chat_model.register("crewai", _crewai_chat)
+    regs.embedder.register("crewai", _crewai_embedder)
     regs.chunker.register("recursive", _recursive_chunker)
     regs.parser.register("text", _text_parser)
     regs.parser.register("html", _html_parser)
     regs.parser.register("pdf", _pdf_parser)
     regs.parser.register("docx", _docx_parser)
     regs.answer_pipeline.register("direct", _direct_pipeline)
+    regs.answer_pipeline.register("crewai", _crewai_pipeline)
     return regs
 
 
