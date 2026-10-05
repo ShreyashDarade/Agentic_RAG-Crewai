@@ -195,3 +195,46 @@ def test_unauthenticated_mode_cannot_be_combined_with_keys() -> None:
         load_settings({**ENV, "AGENTIC_RAG_ALLOW_UNAUTHENTICATED": "true"})
     with pytest.raises(ConfigurationError, match="ALLOW_UNAUTHENTICATED"):
         create_app(config=ApiConfig(api_keys=(API_KEY,), allow_unauthenticated=True))
+
+
+def test_crewai_that_cannot_create_its_data_directory_is_a_typed_start_up_error() -> None:
+    pytest.importorskip("crewai")
+    import subprocess
+    import sys
+    import textwrap
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    script = textwrap.dedent(
+        """
+        import asyncio, os
+        os.environ["XDG_DATA_HOME"] = "/proc/nope"  # mkdir below /proc fails even for root
+        from agentic_rag.config import load_settings
+        from agentic_rag.container import build_container, default_registries
+        from agentic_rag.errors import ConfigurationError
+        from agentic_rag.testing import FakeChatModel, FakeEmbedder, FakeVectorStore
+
+        regs = default_registries()
+        regs.vector_store.register("mem", lambda s, ctx: FakeVectorStore())
+        regs.embedder.register("fake", lambda s, ctx: FakeEmbedder(s.embedding_dimension))
+        regs.chat_model.register("fake", lambda s, ctx: FakeChatModel(["{}"]))
+        env = {"AGENTIC_RAG_API_KEYS": "k" * 20, "AGENTIC_RAG_VECTOR_STORE": "mem", "AGENTIC_RAG_EMBEDDER": "fake",
+               "AGENTIC_RAG_CHAT_MODEL": "fake", "AGENTIC_RAG_EMBEDDING_DIMENSION": "32",
+               "AGENTIC_RAG_ANSWER_PIPELINE": "crewai"}
+        try:
+            asyncio.run(build_container(load_settings(env), regs))
+        except ConfigurationError as exc:
+            print("typed:", exc)
+        except BaseException as exc:
+            print("RAW:", type(exc).__name__)
+        """
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env={**__import__("os").environ, "PYTHONPATH": str(root / "src")},
+        check=False,
+    )
+    assert "typed:" in out.stdout and "XDG_DATA_HOME" in out.stdout, out.stdout + out.stderr

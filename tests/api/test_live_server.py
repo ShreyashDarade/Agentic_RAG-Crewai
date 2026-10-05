@@ -39,7 +39,9 @@ def _free_port() -> int:
 @pytest.fixture
 def server() -> Iterator[tuple[subprocess.Popen[str], str]]:
     port = _free_port()
-    env = {**os.environ, **ENV, "PYTHONPATH": str(ROOT), "PYTHONUNBUFFERED": "1"}
+    # src first: the process must run the code of the tree this test belongs to (a mutated copy in the proofs), not an
+    # editable install of another checkout; the repository root second so that ``tests.plugin_full`` imports.
+    env = {**os.environ, **ENV, "PYTHONPATH": os.pathsep.join([str(ROOT / "src"), str(ROOT)]), "PYTHONUNBUFFERED": "1"}
     proc = subprocess.Popen(
         [sys.executable, "-m", "agentic_rag.cli", "serve", "--port", str(port)],
         env=env,

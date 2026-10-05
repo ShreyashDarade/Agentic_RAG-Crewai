@@ -51,7 +51,8 @@ class RecordingStore(FakeVectorStore):
 
     def __init__(self) -> None:
         super().__init__()
-        self.events: list[str] = []
+        self.events: list[str] = []  # writes only, in order
+        self.calls: list[str] = []  # every call of any kind
         self.fail_on: str | None = None
 
     def _maybe_fail(self, event: str) -> None:
@@ -66,9 +67,14 @@ class RecordingStore(FakeVectorStore):
         await super().upsert(chunks, vectors, embedding_model=embedding_model)
 
     async def delete_document(self, document_id: str, *, keep_chunk_ids: Collection[str] = ()) -> int:
+        self.calls.append("delete_document")
         if keep_chunk_ids:
             self._maybe_fail("sweep")
         return await super().delete_document(document_id, keep_chunk_ids=keep_chunk_ids)
+
+    async def get_document(self, document_id: str):  # type: ignore[no-untyped-def]
+        self.calls.append("get_document")
+        return await super().get_document(document_id)
 
 
 # -- every use case has a deadline (review A8 / B3) --------------------------------------------------------------
@@ -188,7 +194,7 @@ async def test_ids_that_cannot_exist_are_not_found_without_touching_the_store_or
         with pytest.raises(DocumentNotFound):
             await call(hostile)
     assert service._doc_locks == {}
-    assert store.events == []
+    assert store.calls == []  # the store was never asked
 
 
 async def test_the_lock_table_does_not_grow() -> None:

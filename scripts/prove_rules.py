@@ -5,6 +5,7 @@ For each rule: copy the repository, break the rule on purpose, run the rule's ch
 (while the same check PASSES on an unmutated copy). The result is written to docs/mutation-proofs.md.
 
     scripts/prove_rules.py            run every case and rewrite docs/mutation-proofs.md
+    scripts/prove_rules.py --jobs 3   the same, three cases at a time (each in its own copy)
     scripts/prove_rules.py M03 M10    run only these cases (does not rewrite the log)
 """
 
@@ -15,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -929,7 +931,7 @@ CASES: list[Case] = [
             E(
                 S + "sdk/_sync.py",
                 "weakref.finalize(self, _stop, self._loop)",
-                "weakref.finalize(lambda: None, _stop, self._loop)",
+                "weakref.finalize(self, lambda loop: None, self._loop)",
             )
         ],
         PYTEST + ["tests/sdk/test_hardening.py", "-k", "leak_threads"],
@@ -1350,6 +1352,30 @@ CASES: list[Case] = [
         PYTEST + ["tests/conformance/test_components.py", "-k", "delimiter"],
         "FAILED",
     ),
+    Case(
+        "M110",
+        "A start-up failure is a typed error",
+        "an unwritable CrewAI data directory escapes as a raw OSError",
+        [
+            E(
+                S + "container.py",
+                "    except OSError as exc:  # importing crewai creates a data directory under XDG_DATA_HOME\n        raise _crewai_data_dir() from exc",
+                "    except ZeroDivisionError:\n        raise",
+            ),
+            E(
+                S + "container.py",
+                "    except OSError as exc:  # importing crewai creates a data directory under XDG_DATA_HOME\n        raise _crewai_data_dir() from exc",
+                "    except ZeroDivisionError:\n        raise",
+            ),
+            E(
+                S + "container.py",
+                "    except OSError as exc:  # importing crewai creates a data directory under XDG_DATA_HOME\n        raise _crewai_data_dir() from exc",
+                "    except ZeroDivisionError:\n        raise",
+            ),
+        ],
+        PYTEST + ["tests/unit/test_container_hardening.py", "-k", "data_directory"],
+        "FAILED",
+    ),
 ]
 
 
@@ -1370,7 +1396,11 @@ def apply(tree: Path, edits: list[Edit]) -> None:
 def run(tree: Path, command: list[str], milvus: bool) -> tuple[int, str]:
     env = {**os.environ, "PYTHONPATH": str(tree / "src"), "AGENTIC_RAG_MILVUS_URI": ""}
     env.pop("AGENTIC_RAG_MILVUS_URI")
-    proc = subprocess.run(command, cwd=tree, env=env, capture_output=True, text=True, timeout=600)
+    try:
+        proc = subprocess.run(command, cwd=tree, env=env, capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        # A check that hangs has not *failed* in the way the proof needs ("FAILED" and a message): report it as such.
+        return 124, "TIMEOUT: the check did not finish in 300 s"
     return proc.returncode, proc.stdout + proc.stderr
 
 
@@ -1440,8 +1470,12 @@ def write_log(cases: list[Case]) -> None:
 
 
 def main(argv: list[str]) -> int:
+    jobs = 1
+    if argv[:1] == ["--jobs"]:
+        jobs, argv = int(argv[1]), argv[2:]
     selected = [c for c in CASES if not argv or c.id in argv]
-    ok = [prove(c) for c in selected]
+    with ThreadPoolExecutor(max_workers=jobs) as pool:  # each case works in its own copy of the repository
+        ok = list(pool.map(prove, selected))
     if not argv:
         write_log(selected)
     return 0 if all(ok) else 1
