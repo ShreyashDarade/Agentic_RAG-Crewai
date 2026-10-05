@@ -9,6 +9,7 @@ This module imports only the standard library, so the thin SDK can use it.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -360,22 +361,36 @@ class RagStatusError(RagError):
             self.public_message = title
 
 
+def _status_of(value: object, *, fallback: int) -> int:
+    """An HTTP status from untrusted JSON: only an integer in the valid range counts; anything else is the fallback."""
+    if isinstance(value, int) and not isinstance(value, bool) and 100 <= value <= 599:
+        return value
+    return fallback
+
+
+def _seconds_of(value: object) -> float | None:
+    """A finite, non-negative number of seconds from untrusted JSON, or ``None``."""
+    if isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value) and value >= 0:
+        return float(value)
+    return None
+
+
 def error_from_problem(body: Mapping[str, Any], *, status: int | None = None) -> RagError:
     """Rebuild the exception a server serialised with :meth:`RagError.to_problem`.
 
     A known code yields the same class the server raised; an unknown code yields
     :class:`RagStatusError` that keeps the code, status, request id and details.
     """
-    code = str(body.get("code", ""))
-    http_status = int(body.get("status", status or 0))
+    raw_code = body.get("code")
+    code = raw_code if isinstance(raw_code, str) else ""
+    http_status = _status_of(body.get("status"), fallback=status or 0)
     detail = body.get("detail")
     details = body.get("details")
     request_id = body.get("request_id")
-    retry_after = body.get("retry_after")
     common: dict[str, Any] = {
         "details": details if isinstance(details, Mapping) else None,
         "request_id": request_id if isinstance(request_id, str) else None,
-        "retry_after": float(retry_after) if isinstance(retry_after, int | float) else None,
+        "retry_after": _seconds_of(body.get("retry_after")),
     }
     known = _CATALOG.get(code)
     if known is not None and known is not RagStatusError and known.http_status != 0:

@@ -54,6 +54,24 @@ async def test_search_and_query_with_citations(client: AsyncClient, engine) -> N
     assert out.pipeline == "direct"
 
 
+@pytest.mark.parametrize(
+    "hostile", ["", ".", "..", "../../etc/passwd", "a/b", "doc_" + "0" * 32, "doc_x", "%2e%2e", "x" * 3000, "a b", "é"]
+)
+async def test_ids_that_cannot_exist_are_the_same_error_on_every_transport(client: AsyncClient, hostile: str) -> None:
+    with pytest.raises(DocumentNotFound) as got:
+        await client.get_document(hostile)
+    assert got.value.code == "DOCUMENT_NOT_FOUND"
+    with pytest.raises(DocumentNotFound):
+        await client.delete_document(hostile)
+
+
+async def test_an_empty_document_filter_is_the_same_validation_error_on_every_transport(client: AsyncClient) -> None:
+    with pytest.raises(ValidationFailed):
+        await client.search("apples", document_ids=[])
+    with pytest.raises(ValidationFailed):
+        await client.query("apples", document_ids=[])
+
+
 async def test_ungrounded_when_nothing_is_indexed(client: AsyncClient, engine) -> None:  # type: ignore[no-untyped-def]
     _, _, chat = engine
     out = await client.query("anything")

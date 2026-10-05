@@ -82,7 +82,10 @@ def _build_http_backend(
     if api_key and env_key and api_key != env_key:
         raise UsageError(f"api_key conflicts with {ENV_API_KEY}; pass only one")
     key = api_key or env_key or None
-    parts = urlsplit(base_url)
+    if http_client is not None and not str(http_client.base_url):
+        raise UsageError("a supplied http_client must have base_url set")
+    # A supplied client sends to its own base URL, so that is the one the plain-http check must look at.
+    parts = urlsplit(str(http_client.base_url) if http_client is not None else base_url)
     if parts.scheme not in {"http", "https"} or not parts.hostname:
         raise UsageError("base_url must be an http(s) URL")
     if key and parts.scheme == "http" and parts.hostname not in _LOCAL_HOSTS and not allow_insecure:
@@ -93,8 +96,6 @@ def _build_http_backend(
         raise UsageError("timeouts must be positive")
     owns = http_client is None
     client = http_client or httpx.AsyncClient(base_url=base_url.rstrip("/"), verify=verify)
-    if http_client is not None and not str(http_client.base_url):
-        raise UsageError("a supplied http_client must have base_url set")
     return HttpBackend(
         client=client,
         owns_client=owns,

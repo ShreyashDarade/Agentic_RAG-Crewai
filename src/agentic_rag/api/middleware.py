@@ -106,7 +106,9 @@ class RequestContextMiddleware:
                 await _send_problem(send_with_id, RagError(request_id=request_id))
         finally:
             elapsed = time.perf_counter() - began
-            route = getattr(scope.get("route"), "path", None) or "unmatched"  # a template, never the raw path
+            matched = scope.get("route")
+            # a template, never the raw path ("path_format" has no converters: /v1/documents/{document_id})
+            route = getattr(matched, "path_format", None) or getattr(matched, "path", None) or "unmatched"
             if self.metrics:
                 self.metrics.request_finished(scope["method"], route, status, elapsed)
             access_logger.info(

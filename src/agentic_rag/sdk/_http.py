@@ -5,11 +5,14 @@ Retry matrix (framework section 8):
 * never sent (connect errors, no free connection) and refused before work (429, 503): retried for every call;
 * ambiguous (connection reset after the request was written, 408, 502, 504): retried only for idempotent calls;
 * a read timeout is never retried; other statuses are not retried;
-* a DELETE that is retried and then sees ``DOCUMENT_NOT_FOUND`` means the first attempt worked.
+* a DELETE that sees ``DOCUMENT_NOT_FOUND`` after an *ambiguous* earlier attempt means that attempt worked; after an
+  attempt that provably never reached the work (never sent, refused with 429/503) it is a real 404;
+* ``timeout`` is a total deadline across all attempts, enforced on the whole attempt and not per socket operation.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import Mapping
@@ -75,6 +78,7 @@ class HttpBackend:
         self._timeout = timeout
         self._connect_timeout = connect_timeout
         self._retry = retry
+        self._closed = False
 
     # -- backend methods -------------------------------------------------------------------------
 
@@ -116,6 +120,7 @@ class HttpBackend:
         return self._parse(ReadyResponse, response)
 
     async def aclose(self) -> None:
+        self._closed = True
         if self._owns:
             await self._client.aclose()
 
@@ -140,11 +145,14 @@ class HttpBackend:
         accept: tuple[int, ...] = (200, 201),
         treat_retried_404_as_done: bool = False,
     ) -> httpx.Response:
+        if self._closed:
+            raise UsageError("the client is closed")
         policy = self._retry
         deadline = policy.monotonic() + self._timeout
         request_id = uuid.uuid4().hex  # one id per logical call, reused by every attempt
         headers = {**self._headers, "X-Request-ID": request_id}
         attempt = 0
+        may_have_reached_server = False  # an earlier attempt failed ambiguously
         while True:
             remaining = deadline - policy.monotonic()
             if remaining <= 0:
@@ -153,15 +161,20 @@ class HttpBackend:
             delay: float | None = None
             retry_ok = False
             try:
-                response = await self._client.request(
-                    method,
-                    path,
-                    headers=headers,
-                    json=json_body,
-                    files=files,
-                    params=params,
-                    timeout=httpx.Timeout(remaining, connect=min(self._connect_timeout, remaining)),
-                )
+                # httpx timeouts apply to each socket operation, so a server that sends a byte at a time would keep
+                # one call alive far beyond ``timeout``. The outer timeout bounds the whole attempt.
+                async with asyncio.timeout(remaining):
+                    response = await self._client.request(
+                        method,
+                        path,
+                        headers=headers,
+                        json=json_body,
+                        files=files,
+                        params=params,
+                        timeout=httpx.Timeout(remaining, connect=min(self._connect_timeout, remaining)),
+                    )
+            except TimeoutError as exc:
+                raise ClientTimeout(request_id=request_id) from exc  # the work may be running: never retried
             except _NEVER_SENT as exc:
                 failure, retry_ok = ConnectionFailed(request_id=request_id), True
                 failure.__cause__ = exc
@@ -170,6 +183,7 @@ class HttpBackend:
             except _AMBIGUOUS as exc:
                 failure, retry_ok = ConnectionFailed(request_id=request_id), idempotent
                 failure.__cause__ = exc
+                may_have_reached_server = True
             except httpx.TimeoutException as exc:
                 raise ClientTimeout(request_id=request_id) from exc
             except (httpx.InvalidURL, httpx.UnsupportedProtocol) as exc:
@@ -180,12 +194,13 @@ class HttpBackend:
                 if response.status_code in accept:
                     return response
                 failure = _error(response, request_id)
-                if treat_retried_404_as_done and attempt > 0 and isinstance(failure, DocumentNotFound):
+                if treat_retried_404_as_done and may_have_reached_server and isinstance(failure, DocumentNotFound):
                     raise _RetriedDeleteSucceeded
                 if response.status_code in _REFUSED_BEFORE_WORK:
                     retry_ok = True
                 elif response.status_code in _AMBIGUOUS_STATUS:
                     retry_ok = idempotent
+                    may_have_reached_server = True
                 delay = parse_retry_after(response.headers.get("retry-after"))
             assert failure is not None
             if not retry_ok or attempt >= policy.max_retries or not policy.bucket.try_take():
@@ -202,6 +217,10 @@ class _RetriedDeleteSucceeded(Exception):
 
 
 def _doc_path(document_id: str) -> str:
+    # "", "." and ".." survive percent-encoding and are then rewritten by URL normalisation into another route
+    # (the list route, a 405, a redirect). No document can have such an id, so answer exactly as the server would.
+    if document_id in {"", ".", ".."}:
+        raise DocumentNotFound()
     return "/v1/documents/" + quote(document_id, safe="")
 
 

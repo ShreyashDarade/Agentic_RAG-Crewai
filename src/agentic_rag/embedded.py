@@ -44,8 +44,11 @@ class EmbeddedBackend:
         self._service = service
         self._container: Container | None = None
         self._lock: asyncio.Lock | None = None
+        self._closed = False
 
     async def _svc(self) -> Service:
+        if self._closed:
+            raise UsageError("the client is closed")
         if self._service is not None:
             return self._service
         if self._lock is None:
@@ -80,6 +83,7 @@ class EmbeddedBackend:
         return _same_types_as_http(ReadyResponse, await (await self._svc()).ready())
 
     async def aclose(self) -> None:
+        self._closed = True
         if self._container is not None:
-            container, self._container = self._container, None
+            container, self._container, self._service = self._container, None, None
             await container.aclose()

@@ -83,12 +83,12 @@ async def list_documents(
     return await service.list_documents(limit=limit, page_token=page_token)
 
 
-@v1_router.get("/documents/{document_id}", operation_id="get_document", tags=["documents"])
+@v1_router.get("/documents/{document_id:path}", operation_id="get_document", tags=["documents"])
 async def get_document(document_id: str, service: ServiceDep) -> DocumentInfo:
     return await service.get_document(document_id)
 
 
-@v1_router.delete("/documents/{document_id}", operation_id="delete_document", tags=["documents"])
+@v1_router.delete("/documents/{document_id:path}", operation_id="delete_document", tags=["documents"])
 async def delete_document(document_id: str, service: ServiceDep) -> DeleteResult:
     return await service.delete_document(document_id)
 
