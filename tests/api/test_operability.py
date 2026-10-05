@@ -35,6 +35,8 @@ def test_a_dead_dependency_is_reported_identically_by_readyz_metrics_and_logs(ca
         assert _metric(up, "agentic_rag_ready") == 1.0
 
         store._unavailable = True  # the dependency dies
+        scraped = client.get("/metrics", headers=H).text  # a scrape with no /readyz call in between must already see it
+        assert 'agentic_rag_dependency_up{dependency="vector_store"} 0.0' in scraped
         r = client.get("/readyz", headers={"X-Request-ID": "outage-0001-abcd"})
         assert r.status_code == 503
         assert r.json() == {"ready": False, "checks": {"vector_store": "unavailable"}}
