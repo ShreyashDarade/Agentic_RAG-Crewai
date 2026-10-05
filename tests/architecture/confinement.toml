@@ -1,0 +1,21 @@
+# Every third-party library that src/agentic_rag may import, and the only modules allowed to import it.
+# A library missing from this table is a failure ("unclassified"); so is an import outside its modules.
+# Patterns: exact module name, or "pkg.*" for the package and all descendants.
+
+[allowed]
+pydantic          = ["agentic_rag.contracts.*", "agentic_rag.config", "agentic_rag.client", "agentic_rag.sdk.*", "agentic_rag.embedded", "agentic_rag.adapters.crewai.*"]
+httpx             = ["agentic_rag.sdk.*", "agentic_rag.client"]
+pydantic_settings = ["agentic_rag.config"]
+fastapi           = ["agentic_rag.api.*", "agentic_rag.server"]
+starlette         = ["agentic_rag.api.*"]
+pymilvus          = ["agentic_rag.adapters.milvus.*"]
+openai            = ["agentic_rag.adapters.openai.*"]
+bs4               = ["agentic_rag.adapters.parser_html"]
+pymupdf           = ["agentic_rag.adapters.parser_pdf"]
+docx              = ["agentic_rag.adapters.parser_docx"]
+pytest            = ["agentic_rag.testing.contracts"]
+prometheus_client = ["agentic_rag.api.metrics"]
+crewai            = ["agentic_rag.adapters.crewai.*"]
+chromadb          = ["agentic_rag.adapters.chroma"]
+qdrant_client     = ["agentic_rag.adapters.qdrant"]
+uvicorn           = ["agentic_rag.server"]

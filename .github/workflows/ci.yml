@@ -1,0 +1,104 @@
+name: CI
+on:
+  push:
+    branches: [main, "ccr-*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: lint, types, architecture, snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # All extras: type-checking needs the optional libraries installed (a thinner environment than a developer's fails mypy).
+      - run: uv sync --frozen --python 3.12 --extra engine --extra server --extra parsers --extra crewai --extra chroma --extra qdrant --group dev
+      - run: uv run ruff check src tests scripts
+      - run: uv run ruff format --check src tests scripts
+      - run: uv run mypy
+      - run: uv run lint-imports
+      - run: uv run python scripts/snapshots.py check
+      - name: Public API compatibility against the last release tag (skipped until a tag exists)
+        run: |
+          git fetch --tags --force
+          if git describe --tags --abbrev=0 >/dev/null 2>&1; then
+            uv run griffe check agentic_rag -s src -f github
+          else
+            echo "no release tag yet"
+          fi
+
+  tests:
+    name: tests (python ${{ matrix.python }}, ${{ matrix.extras }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+        extras: ["minimal", "full"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install (minimal = engine/server/parsers; full adds crewai, chroma, qdrant)
+        run: |
+          EXTRAS="--extra engine --extra server --extra parsers"
+          if [ "${{ matrix.extras }}" = "full" ]; then EXTRAS="$EXTRAS --extra crewai --extra chroma --extra qdrant"; fi
+          uv sync --frozen --python ${{ matrix.python }} $EXTRAS --group dev
+      - name: Start Milvus standalone (real service)
+        run: |
+          scripts/dev-services.sh up
+          scripts/dev-services.sh env >> "$GITHUB_ENV"
+          grep -q standalone <(echo "$(cat .dev/milvus.uri)") || { echo "::error::standalone Milvus did not start"; exit 1; }
+      - run: uv run pytest -q --cov --cov-report=term
+      - if: always()
+        run: scripts/dev-services.sh down
+
+  security:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --python 3.12 --group dev
+      - run: |
+          uv export --frozen --no-hashes --no-dev --extra engine --extra server --extra parsers --no-emit-project -o req.txt
+          uv run pip-audit -r req.txt --no-deps --disable-pip --strict
+
+  eval-gate:
+    name: retrieval regression gate (golden set)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --python 3.12 --extra engine --group dev
+      - name: Score the committed golden set and compare it with the committed baseline (fails on a significant regression)
+        run: |
+          uv run agentic-rag eval run --dataset tests/eval/golden --out "$RUNNER_TEMP/golden.json" > /dev/null
+          uv run agentic-rag eval check --baseline docs/eval/golden-bm25-baseline.json --candidate "$RUNNER_TEMP/golden.json"
+
+  packaging:
+    name: wheel and thin install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --python 3.12 --group dev
+      - name: Build the wheel, install only it in a clean environment, prove the thin client imports no engine library
+        run: uv run python scripts/check_wheel.py
+
+  mutation-proofs:
+    name: governance mutation proofs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen --python 3.12 --extra engine --extra server --extra parsers --extra crewai --extra chroma --extra qdrant --group dev
+      # Every case must show: check passes on a clean copy, fails on the broken copy. The script exits non-zero otherwise.
+      - run: uv run python scripts/prove_rules.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-proofs
+          path: docs/mutation-proofs.md

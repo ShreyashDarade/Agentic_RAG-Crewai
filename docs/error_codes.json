@@ -1,0 +1,194 @@
+[
+  {
+    "code": "AUTHENTICATION_FAILED",
+    "class": "AuthenticationFailed",
+    "http_status": 401,
+    "public_message": "Authentication failed."
+  },
+  {
+    "code": "CLIENT_TIMEOUT",
+    "class": "ClientTimeout",
+    "http_status": 0,
+    "public_message": "The client gave up waiting for the server."
+  },
+  {
+    "code": "CONFIGURATION_ERROR",
+    "class": "ConfigurationError",
+    "http_status": 500,
+    "public_message": "The server is misconfigured."
+  },
+  {
+    "code": "CONNECTION_FAILED",
+    "class": "ConnectionFailed",
+    "http_status": 0,
+    "public_message": "Could not reach the server."
+  },
+  {
+    "code": "DEADLINE_EXCEEDED",
+    "class": "DeadlineExceeded",
+    "http_status": 504,
+    "public_message": "The request exceeded its deadline."
+  },
+  {
+    "code": "DEPENDENCY_ERROR",
+    "class": "DependencyError",
+    "http_status": 502,
+    "public_message": "A dependency failed."
+  },
+  {
+    "code": "DOCUMENT_EMPTY",
+    "class": "DocumentEmpty",
+    "http_status": 422,
+    "public_message": "The document contains no extractable text."
+  },
+  {
+    "code": "DOCUMENT_NOT_FOUND",
+    "class": "DocumentNotFound",
+    "http_status": 404,
+    "public_message": "The document was not found."
+  },
+  {
+    "code": "DOCUMENT_PARSE_FAILED",
+    "class": "DocumentParseFailed",
+    "http_status": 422,
+    "public_message": "The document could not be parsed."
+  },
+  {
+    "code": "EMBEDDING_FAILED",
+    "class": "EmbeddingFailed",
+    "http_status": 502,
+    "public_message": "Computing embeddings failed."
+  },
+  {
+    "code": "FEATURE_DISABLED",
+    "class": "FeatureDisabled",
+    "http_status": 403,
+    "public_message": "This operation is disabled on this server."
+  },
+  {
+    "code": "IDEMPOTENCY_KEY_REUSED",
+    "class": "IdempotencyKeyReused",
+    "http_status": 422,
+    "public_message": "The idempotency key was already used with a different request."
+  },
+  {
+    "code": "INDEX_INCOMPATIBLE",
+    "class": "IndexIncompatible",
+    "http_status": 409,
+    "public_message": "The stored index was built with a different embedding model or size."
+  },
+  {
+    "code": "INTERNAL_ERROR",
+    "class": "RagError",
+    "http_status": 500,
+    "public_message": "An internal error occurred."
+  },
+  {
+    "code": "INVALID_RESPONSE",
+    "class": "InvalidResponse",
+    "http_status": 0,
+    "public_message": "The server returned a response this client could not understand."
+  },
+  {
+    "code": "LIMIT_EXCEEDED",
+    "class": "LimitExceeded",
+    "http_status": 422,
+    "public_message": "A configured limit was exceeded."
+  },
+  {
+    "code": "METHOD_NOT_ALLOWED",
+    "class": "MethodNotAllowed",
+    "http_status": 405,
+    "public_message": "The method is not allowed for this resource."
+  },
+  {
+    "code": "MODEL_FAILED",
+    "class": "ModelFailed",
+    "http_status": 502,
+    "public_message": "The language model call failed."
+  },
+  {
+    "code": "MODEL_OUTPUT_INVALID",
+    "class": "ModelOutputInvalid",
+    "http_status": 502,
+    "public_message": "The language model returned output that failed validation."
+  },
+  {
+    "code": "NOT_FOUND",
+    "class": "NotFound",
+    "http_status": 404,
+    "public_message": "The resource was not found."
+  },
+  {
+    "code": "OVERLOADED",
+    "class": "Overloaded",
+    "http_status": 503,
+    "public_message": "The server is overloaded; retry later."
+  },
+  {
+    "code": "PAYLOAD_TOO_LARGE",
+    "class": "PayloadTooLarge",
+    "http_status": 413,
+    "public_message": "The payload is larger than the configured limit."
+  },
+  {
+    "code": "RATE_LIMITED",
+    "class": "RateLimited",
+    "http_status": 429,
+    "public_message": "Too many requests."
+  },
+  {
+    "code": "REQUEST_IN_FLIGHT",
+    "class": "RequestInFlight",
+    "http_status": 409,
+    "public_message": "A request with this idempotency key is still being processed."
+  },
+  {
+    "code": "UNKNOWN_COMPONENT",
+    "class": "UnknownComponent",
+    "http_status": 500,
+    "public_message": "No component is registered under that name."
+  },
+  {
+    "code": "UNKNOWN_ERROR",
+    "class": "RagStatusError",
+    "http_status": 0,
+    "public_message": "The server returned an error."
+  },
+  {
+    "code": "UNSUPPORTED_FILE_TYPE",
+    "class": "UnsupportedFileType",
+    "http_status": 415,
+    "public_message": "This file type is not supported."
+  },
+  {
+    "code": "UPSTREAM_RATE_LIMITED",
+    "class": "UpstreamRateLimited",
+    "http_status": 429,
+    "public_message": "An upstream provider is rate limiting this server."
+  },
+  {
+    "code": "USAGE_ERROR",
+    "class": "UsageError",
+    "http_status": 0,
+    "public_message": "The client was used incorrectly."
+  },
+  {
+    "code": "VALIDATION_FAILED",
+    "class": "ValidationFailed",
+    "http_status": 422,
+    "public_message": "The request is not valid."
+  },
+  {
+    "code": "VECTOR_STORE_ERROR",
+    "class": "VectorStoreError",
+    "http_status": 502,
+    "public_message": "The vector store rejected the operation."
+  },
+  {
+    "code": "VECTOR_STORE_UNAVAILABLE",
+    "class": "VectorStoreUnavailable",
+    "http_status": 503,
+    "public_message": "The vector store is unavailable."
+  }
+]

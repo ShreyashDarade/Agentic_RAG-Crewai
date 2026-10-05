@@ -1,0 +1,78 @@
+{
+  "machine": {
+    "python": "3.11.15",
+    "platform": "Linux-6.18.44-fc-v70-x86_64-with-glibc2.39",
+    "cpus": 4,
+    "milvus": "milvus-lite (embedded, single process)"
+  },
+  "corpus": {
+    "docs": 200,
+    "bytes": 4688201,
+    "seed": 1
+  },
+  "ingest_cold": {
+    "clients": 4,
+    "docs_per_s": 17.74,
+    "chunks_per_s": 354.9,
+    "chunks": 4000,
+    "wall_s": 11.27
+  },
+  "search_warm": [
+    {
+      "clients": 1,
+      "n": 300,
+      "throughput_per_s": 26.7,
+      "p50_ms": 33.62,
+      "p95_ms": 48.17,
+      "p99_ms": 123.19,
+      "mean_ms": 37.39
+    },
+    {
+      "clients": 4,
+      "n": 300,
+      "throughput_per_s": 26.4,
+      "p50_ms": 138.77,
+      "p95_ms": 214.89,
+      "p99_ms": 254.6,
+      "mean_ms": 150.91
+    },
+    {
+      "clients": 16,
+      "n": 300,
+      "throughput_per_s": 24.8,
+      "p50_ms": 642.21,
+      "p95_ms": 1004.25,
+      "p99_ms": 1449.95,
+      "mean_ms": 631.93
+    }
+  ],
+  "query_warm": [
+    {
+      "clients": 1,
+      "n": 300,
+      "throughput_per_s": 24.7,
+      "p50_ms": 36.07,
+      "p95_ms": 65.38,
+      "p99_ms": 125.33,
+      "mean_ms": 40.44
+    },
+    {
+      "clients": 4,
+      "n": 300,
+      "throughput_per_s": 24.8,
+      "p50_ms": 149.42,
+      "p95_ms": 232.9,
+      "p99_ms": 256.99,
+      "mean_ms": 160.26
+    },
+    {
+      "clients": 16,
+      "n": 300,
+      "throughput_per_s": 24.8,
+      "p50_ms": 632.2,
+      "p95_ms": 1031.35,
+      "p99_ms": 1705.05,
+      "mean_ms": 633.54
+    }
+  ]
+}

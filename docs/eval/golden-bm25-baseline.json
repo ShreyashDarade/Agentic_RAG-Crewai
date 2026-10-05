@@ -1,0 +1,223 @@
+{
+ "dataset": "golden",
+ "k": 10,
+ "metric_definitions": {
+  "hit": "any relevant in top k",
+  "mrr": "1 / rank of first relevant in top k",
+  "ndcg": "linear gain, log2(rank+1) discount, ideal = all judged grades sorted",
+  "precision": "relevant in top k / k",
+  "recall": "relevant in top k / relevant judged",
+  "relevant": "grade >= 1; unjudged = not relevant"
+ },
+ "n_documents": 24,
+ "n_queries": 24,
+ "per_query": {
+  "q01": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q02": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q03": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q04": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q05": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q06": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q07": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q08": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q09": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q10": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q11": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q12": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q13": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q14": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q15": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q16": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q17": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q18": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q19": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q20": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q21": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q22": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q23": {
+   "hit@10": 1.0,
+   "mrr@10": 0.5,
+   "ndcg@10": 0.6309297535714575,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  },
+  "q24": {
+   "hit@10": 1.0,
+   "mrr@10": 1.0,
+   "ndcg@10": 1.0,
+   "precision@10": 0.1,
+   "recall@10": 1.0
+  }
+ },
+ "seed": 0,
+ "summary": {
+  "hit@10": {
+   "ci95": [
+    1.0,
+    1.0
+   ],
+   "mean": 1.0
+  },
+  "mrr@10": {
+   "ci95": [
+    0.9375,
+    1.0
+   ],
+   "mean": 0.9791666666666666
+  },
+  "ndcg@10": {
+   "ci95": [
+    0.9538662191964322,
+    1.0
+   ],
+   "mean": 0.9846220730654774
+  },
+  "precision@10": {
+   "ci95": [
+    0.10000000000000003,
+    0.10000000000000003
+   ],
+   "mean": 0.10000000000000002
+  },
+  "recall@10": {
+   "ci95": [
+    1.0,
+    1.0
+   ],
+   "mean": 1.0
+  }
+ },
+ "system": "bm25(k1=1.2,b=0.75)"
+}

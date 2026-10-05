@@ -1,0 +1,86 @@
+# Every default that changes retrieval or answer quality, with its evidence.
+# evidence = "<path to a run file under docs/eval>" | "unmeasured". tests/docs/test_docs_match_code.py enforces that every
+# setting is either listed here or classified as operational in that test (so a new setting cannot be added unclassified),
+# that each value matches the code, and that cited run files exist.
+
+[bm25_k1]
+value = 1.2
+evidence = "docs/eval/scifact-bm25-k1=1.2-b=0.75.json"
+note = "SciFact only. Paired comparison against k1=0.9 and 1.5 showed no significant difference (all p > 0.28, Holm-adjusted none rejected): the default is kept, not proven optimal."
+
+[bm25_b]
+value = 0.75
+evidence = "docs/eval/scifact-bm25-k1=1.2-b=0.75.json"
+note = "SciFact only. b=0.4 and b=0.9 were not significantly different (p 0.89 and 0.31)."
+
+[default_top_k]
+value = 8
+evidence = "unmeasured"
+
+[candidate_pool]
+value = 40
+evidence = "unmeasured"
+
+[rrf_k]
+value = 60
+evidence = "unmeasured"
+note = "60 is the constant from Cormack et al. 2009 for fusing 30 TREC systems; no 2-way BM25 + dense measurement exists here."
+
+[use_lexical]
+value = true
+evidence = "unmeasured"
+note = "Hybrid (dense + BM25) retrieval has not been compared with dense-only: no real embedding model was available."
+
+[use_reranker]
+value = false
+evidence = "unmeasured"
+note = "Off because no reranker adapter is shipped yet and no measurement supports one."
+
+[chunk_max_chars]
+value = 1500
+evidence = "unmeasured"
+
+[chunk_overlap_chars]
+value = 200
+evidence = "unmeasured"
+
+[answer_pipeline]
+value = "direct"
+evidence = "unmeasured"
+note = "direct vs crewai needs a real model; the crew costs about five model calls per question against one."
+
+[hnsw_m]
+value = 32
+evidence = "unmeasured"
+
+[hnsw_ef_construction]
+value = 200
+evidence = "unmeasured"
+
+[search_ef]
+value = 64
+evidence = "unmeasured"
+
+[pipeline_max_tokens]
+value = 700
+evidence = "unmeasured"
+
+[crewai_max_iter]
+value = 3
+evidence = "unmeasured"
+note = "Reasoning iterations per agent. Bounds cost; whether more iterations improve answers is not measured."
+
+[crewai_max_seconds]
+value = 40
+evidence = "unmeasured"
+note = "A safety bound (must stay below the request deadline), not a quality setting."
+
+[crewai_max_context_chars]
+value = 12000
+evidence = "unmeasured"
+note = "How much retrieved text the crew may be shown per prompt, including what its search tool returns."
+
+[crewai_search_budget]
+value = 4
+evidence = "unmeasured"
+note = "Searches the retriever agent may run per question."
